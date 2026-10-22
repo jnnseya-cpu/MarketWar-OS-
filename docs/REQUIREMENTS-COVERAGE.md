@@ -11051,3 +11051,128 @@ price, the site or the copy.
 3. **My own coverage floor was a tripwire, not a guard.** `assert.ok(covered >= 21)`
    would have passed through a collapse to 21. It is now 52 with the cast-count
    discipline written beside it: this floor only ever rises.
+
+---
+
+## §167 — The October 2026 Node.js advisory, checked against this architecture
+
+**What arrived.** Hostinger's security email: Node.js released fixes on 21 October
+2026; update to 22.23.4, 24.22.1 or 26.12.1; here is how to patch your VPS.
+
+**Verified before answering, because an email is not a source.** The official
+advisory lists **10 CVEs**, of which **6 affect the 22 line** and **4 are High**:
+
+| CVE | Severity | 22.x | What it is |
+| --- | --- | --- | --- |
+| CVE-2026-111497 | High | yes | Brotli decoder out-of-bounds write → **remote code execution** |
+| CVE-2026-105482 | High | yes | `dns.resolve` truncates names containing a NUL character |
+| CVE-2026-106069 | High | yes | TLS hostname check bypassed when a host loosely resolves to an IP |
+| CVE-2026-105483 | High | **no** | TLS hostname bypass via fullwidth-digit IPs (24.x and 26.x only) |
+| CVE-2026-105481 | Medium | yes | Keep-alive socket processes a response written before the request |
+| CVE-2026-106072 | Medium | yes | Non-canonical IPv4 hostnames let DNS SANs authenticate IP endpoints |
+| CVE-2026-106074 | Medium | yes | `randomUUID`/`randomInt` entropy caches saved into snapshots and SEAs |
+| CVE-2026-106073 | Low | yes | Permission Model bypass with `fs.realpathSync` |
+
+One claim in the secondary coverage — that the advisory tells you to rebuild
+rather than upgrade — **is not in the advisory** and is not repeated here.
+CVE-2026-106074 concerns snapshots and single-executable applications, which this
+project does not build.
+
+### What the VPS instructions apply to, which is almost nothing here
+
+| Where Node runs | Exposure | Action |
+| --- | --- | --- |
+| **Vercel** (the platform) | Real: the frontend and every API route | The host owns the runtime; redeploy once it ships 22.23.4. `engines` is a request, not a lever |
+| **`infra/sending-node/`** | **None** — it is docker-mailserver: Postfix and Dovecot, **no Node.js in the image** | Nothing for this advisory |
+| **`worker/Dockerfile`** | Only if deployed; `FROM node:22-slim` is a floating tag | Rebuild with `--pull`; it is Cloud Run / Fly / Railway, not a VPS |
+| **CI** (`node-version: "22"`) | Build only | Self-healing: resolves to the latest 22 on the next run |
+
+So the email's `apt upgrade nodejs` and Docker Manager steps have no target on this
+architecture. **The sending relay is the thing on a VPS, and it contains no Node.**
+
+### THE ONE THAT MATTERS, AND THREE MEASUREMENTS THAT CHANGED THE FIX
+
+`/audit` fetches **a URL of the caller's choosing with no account at all**, and the
+enrichment crawl follows domains and social pages out of an imported list. So a
+decoder with a published RCE is reachable by somebody who chooses what it is fed.
+
+The obvious mitigation was to stop accepting Brotli. Measured on Node 22 over a
+real socket, in this order:
+
+1. **Our crawl never requested Brotli.** `fetch` already sends
+   `Accept-Encoding: gzip, deflate`. Excluding `br` from the request produced a
+   **byte-identical** header — the fix was a no-op, one step from being shipped
+   with a confident commit message.
+2. **A server can send `Content-Encoding: br` anyway, and fetch decompresses it.**
+   Served unsolicited Brotli; read it back decompressed. **No request header
+   protects the decoder.**
+3. **Decoding happens on the BODY READ.** A corrupt Brotli payload let `fetch()`
+   resolve, left the header readable, and allowed the body to be cancelled unread.
+
+(3) is what makes a mitigation possible: **refuse at the header, cancel the body,
+and the attacker-controlled bytes never reach the decoder** — whatever version the
+runtime happens to be, which matters because the patch timing belongs to the host.
+
+**A fourth measurement, worth its own line.** Reading a **corrupt** Brotli body
+did not throw — it returned a string of **length 0**. So a hostile or broken
+response read as *a page with no content* rather than *a page we could not read*:
+the second defect class exactly, inside the crawler that already holds that an
+empty body must never read as a pass. The refusal removes that silent case too.
+
+### What shipped
+
+- **`src/shared/hostile-encoding.ts`** — one rule: `br` and `zstd` are refused
+  (we request neither), `gzip`/`deflate` never are. The header is split on commas
+  and normalised, because `header === "br"` passes `gzip, br` straight through
+  while reading as protection in every review.
+- **Applied at the two unauthenticated paths**: `readCapped` in `crawler.ts` — the
+  single choke point every capped read already goes through, for the same reason
+  the cap itself exists — and `get()` in `deep-crawl.ts`, which walks several
+  pages and is therefore the wider exposure. Throwing a named
+  `RefusedEncodingError` means the existing catch reports the honest "could not be
+  read" rather than a blank page.
+- **`Accept-Encoding` stated explicitly** on both. It changes nothing today
+  (measured) and stops a future runtime default from quietly adding `br`.
+- **`/api/health/live` now reports whether the runtime is patched** — the running
+  version against the advisory's, with the CVEs named and the action stated.
+  Driven: `security.patched false, fixedVersion 22.23.4` on this container's
+  22.22.0.
+
+**REPORTED, NOT ENFORCED, and that is §5.0 rather than caution.** A floor of
+`>=22.23.4` in `engines` would fail every deployment until the host agrees —
+and `engines: 22.x` exists *because* a version somebody else controls was turned
+into a hard requirement and took production down twice. The platform says which
+runtime answered; the owner redeploys when the host has shipped it.
+
+### A defect I introduced, caught by a test written for the previous one
+
+`res.headers.get(...)` assumed a shape `readCapped` does not require: the function
+is deliberately tolerant of a response that cannot be streamed, and **audit D-16**
+passes exactly that minimal stand-in. The guard threw on it. Read defensively now,
+with a case pinned in the new test file — and the irony is recorded: a guard added
+for security broke the cap test, which itself exists because that cap was once a
+formatting step pretending to be a limit.
+
+### Mutation tested — 5 mutants, all killed
+
+| Mutant | Killed by |
+| --- | --- |
+| The reader stops refusing | 2 tests |
+| Whole-header comparison, so `gzip, br` passes | 1 |
+| Substring matching, so `brotli-ish` is refused | 1 |
+| String version comparison, so 22.9.0 reads as patched | 1 |
+| `gzip` added to the refusal list (crawler dead) | 3 |
+
+### Still exposed, named rather than implied
+
+Ten other modules fetch third-party bodies — `enrich.ts`, `enrichment-adapters.ts`,
+`market-exit-detect.ts`, `geo-readiness.ts`, `citation-sources.ts`,
+`creator-agents.ts`, `blog-links.ts`, `logo-palette.ts`, `storage.ts`,
+`video-jobs.ts`. All are authenticated or point at our own URLs, so the exposure is
+narrower than `/audit`, and none has the guard yet. **The runtime patch is the real
+fix for all of them**; this is the list for the next pass.
+
+**WHAT THIS CANNOT PROVE:** that the mitigation stops the actual exploit. Nobody
+here has a working CVE-2026-111497 payload, and none was written. What is proven is
+that attacker-supplied Brotli no longer reaches the decoder on those two paths,
+measured over a real socket.

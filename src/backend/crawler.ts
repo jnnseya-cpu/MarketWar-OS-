@@ -18,6 +18,7 @@ import { detectRenderGap, classifyBlock, type RenderGap, type BlockVerdict } fro
 import { TITLE_MIN, TITLE_MAX, DESC_MIN, DESC_MAX, DESC_THIN, titleOk, descriptionOk, descriptionThin } from "@/shared/seo-limits";
 import { aiReadability } from "@/shared/ai-readability";
 import { blockedUrlReason, blockedAddressReason, MAX_REDIRECTS } from "@/shared/net-guard";
+import { refuseResponseEncoding, RefusedEncodingError, REQUESTED_ENCODING } from "@/shared/hostile-encoding";
 
 export type Severity = "pass" | "warn" | "fail";
 export type Finding = {
@@ -172,7 +173,17 @@ async function fetchPage(url: string, timeoutMs = 12_000): Promise<{ status: num
       const res = await fetch(current, {
         signal: ctrl.signal,
         redirect: "manual",
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; MarketWarBot/1.0; +https://marketwaros.com)", Accept: "text/html,application/xhtml+xml" },
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; MarketWarBot/1.0; +https://marketwaros.com)",
+          Accept: "text/html,application/xhtml+xml",
+          // STATED RATHER THAN INHERITED, and it changes nothing today: measured
+          // on Node 22, fetch already sends exactly `gzip, deflate`, so the two
+          // requests are byte-identical in this header. It is written down so a
+          // future runtime that adds `br` to its default cannot quietly start
+          // requesting a coding we refuse to decode — the request and the
+          // refusal now come from the same constant.
+          "Accept-Encoding": REQUESTED_ENCODING,
+        },
       });
 
       const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
@@ -224,6 +235,36 @@ const MAX_HTML_BYTES = 1_500_000;
  * available for a body that cannot be streamed.
  */
 export async function readCapped(res: Response, limit: number): Promise<string> {
+  // REFUSED AT THE HEADER, BEFORE A BYTE IS DECODED.
+  //
+  // The cap below exists because a decompression bomb can exhaust this function
+  // before a slice is reached. This is the same argument one step earlier: Node's
+  // October 2026 release fixed an out-of-bounds write in the Brotli decoder that
+  // permits remote code execution (CVE-2026-111497), and `/audit` fetches a URL
+  // of the caller's choosing with no account at all.
+  //
+  // MEASURED, because the obvious fix was wrong: our request does not ask for
+  // Brotli (fetch sends `gzip, deflate`), a server can send it anyway, and fetch
+  // decompresses it regardless. Only the body READ triggers the decoder — so
+  // refusing here, before the read, is what keeps the bytes away from it.
+  //
+  // Throwing rather than returning "" is deliberate. A corrupt Brotli body reads
+  // back as a zero-length string without error, so an empty return would make a
+  // hostile response indistinguishable from a blank page — and this crawler
+  // already holds that an empty body must never read as a pass. `fetchPage`'s
+  // existing catch turns this into the honest "could not be read" outcome.
+  //
+  // READ DEFENSIVELY, because this function is deliberately tolerant of a
+  // response that cannot be streamed — the fallback below handles one with no
+  // reader at all. `res.headers.get(...)` assumed a shape the function itself
+  // does not require, and it broke the cap test's minimal stand-in on the first
+  // run. Every real `fetch` response has headers; a stand-in with none has no
+  // declared encoding, which is exactly the "nothing to refuse" case.
+  const refusal = refuseResponseEncoding(res.headers?.get?.("content-encoding"));
+  if (refusal) {
+    try { await res.body?.cancel(); } catch { /* already finished; nothing was decoded either way */ }
+    throw new RefusedEncodingError(refusal);
+  }
   const decoder = new TextDecoder("utf-8", { fatal: false });
   const body = res.body;
   if (!body || typeof body.getReader !== "function") {

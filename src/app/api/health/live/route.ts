@@ -4,6 +4,7 @@ import { ENV_CATALOGUE, ENV_NAMES } from "@/shared/env-catalogue";
 // diagnostic that needs it. Reading a single environment variable in the second
 // caller would answer "unknown" on three of the four hosts this can run on.
 import { buildIdentity } from "@/shared/build-identity";
+import { runtimeSecurity } from "@/shared/hostile-encoding";
 
 // Live-readiness matrix — a SAFE, no-spend pre-flight for the deployed app.
 // Reports which live capabilities are wired vs still demo, and exactly what to
@@ -225,6 +226,21 @@ export async function GET() {
       return {
         node: running,
         canRequireEsm,
+        // IS THE RUNTIME PATCHED? Asked of the process rather than of a dashboard.
+        //
+        // Node's October 2026 releases fixed ten CVEs, six affecting the 22 line
+        // and four of those HIGH — including CVE-2026-111497, an out-of-bounds
+        // write in the Brotli decoder permitting remote code execution, which
+        // `/audit` can reach because it fetches a URL of the caller's choosing
+        // with no account. The host owns the runtime version here, so the action
+        // is a redeploy once the host ships the patch, and the only honest way
+        // to know it has shipped is to ask the process that is running.
+        //
+        // Reported, never enforced: a floor of 22.23.4 in `engines` would fail
+        // every deployment until the host agrees, and the two outages recorded
+        // above are what happens when a version somebody else controls becomes
+        // a hard requirement.
+        security: runtimeSecurity(running),
         note: canRequireEsm
           ? "This Node can require() an ES module, so a CommonJS dependency importing an ESM package loads normally."
           : "This Node CANNOT require() an ES module. Any CommonJS dependency that requires an ESM package dies at module load, which takes out every route that imports it and shows as 'Unexpected token <' on every screen. The dependency versions in package.json avoid needing it — if you are seeing this note alongside load failures, an override has been lost.",
