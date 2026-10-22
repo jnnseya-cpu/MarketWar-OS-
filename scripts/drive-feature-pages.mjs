@@ -188,7 +188,32 @@ try {
 
   // ───────────────────────────────────────────────────────────────────────────
   say("");
-  say("6. EVERY FEATURE IS ACCOUNTED FOR — sold, or recorded as not sold.");
+  say("6. THE PAGE READS. This section exists because the driver did not have");
+  say("   it, and two pages shipped with markdown the renderer cannot render:");
+  say("   a table that came out as a wall of pipes, and an ordered list that");
+  say("   came out as one paragraph beginning \"1.\". Status, schema, canonical");
+  say("   and lengths were all green on both.");
+  const pipes = [], ticks = [], hashes = [], headings = [];
+  for (const p of FEATURE_PAGES) {
+    const html = bodies.get(p.slug) || "";
+    // Only the ARTICLE body, so a pipe in the nav or a script cannot mask or
+    // fake a finding.
+    const article = html.split("<h1")[1]?.split("</main")[0] ?? html;
+    if (/\|\s*-{3,}/.test(article) || /<p>[^<]*\|[^<]*\|/.test(article)) pipes.push(p.slug);
+    if (/<p>[^<]*`/.test(article)) ticks.push(p.slug);
+    if (/<p>#{1,6}\s/.test(article)) hashes.push(p.slug);
+    // Every page must actually have rendered its sections, or the body arrived
+    // as one undifferentiated block.
+    if ((article.match(/<h2>/g) || []).length < 3) headings.push(p.slug);
+  }
+  check("no page renders a markdown table as pipes", pipes.length === 0, pipes.join(", ") || "none");
+  check("no page renders a literal backtick into the prose", ticks.length === 0, ticks.join(", ") || "none");
+  check("no page renders a literal row of hashes", hashes.length === 0, hashes.join(", ") || "none");
+  check("every page rendered its own section headings", headings.length === 0, headings.join(", ") || "all structured");
+
+  // ───────────────────────────────────────────────────────────────────────────
+  say("");
+  say("7. EVERY FEATURE IS ACCOUNTED FOR — sold, or recorded as not sold.");
   const cov = featureCoverage();
   check("no engine is unaccounted for", cov.unaccounted.length === 0, cov.unaccounted.join(", ") || "none");
   check("no page claims an engine that does not exist", cov.orphanPages.length === 0, cov.orphanPages.join(", ") || "none");

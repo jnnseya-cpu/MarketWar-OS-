@@ -10885,9 +10885,10 @@ a recorded reason it is not, in one of three categories:
   execution, communication events, the commercial model. Real engines with an
   audience of one; a public page selling the operator's own till is the thin
   content the policy exists to demote.
-- **`pending`** (27) — customer-facing, with the proof IDENTIFIED and named in the
-  ledger, page still to write. The next session writes from the code rather than
-  re-deriving which engines matter.
+- **`pending`** (0 at the close of this section; 39 when it was opened) — customer-facing,
+  with the proof IDENTIFIED and named in the ledger. Every one of them was then
+  written, so the bucket is empty rather than aspirational. The field stays, because
+  the next engine added to the registry lands in it.
 - **`no-proof`** (0) — customer-facing with nothing specific to say yet. The honest
   category, and it must never become a dumping ground.
 
@@ -10896,7 +10897,7 @@ because a number like that is wrong within a week and this repository has shippe
 that exact defect twice. **A test fails the build when an engine is in neither
 set**, when a ledger reason is shorter than a reason, or when an engine is in both.
 
-### Twelve pages written, 13 → 25 engines sold
+### Thirty-nine pages written, 13 → 52 engines sold, and the pending list is EMPTY
 
 Each proof was read off the engine, not recalled: ACU pricing (100 ACUs to the
 pound, floor 2×, standard 4× — and the engine's own comment refusing the usual
@@ -11007,3 +11008,46 @@ this platform charges customers to run on their own site.
 
 27 engines are customer-facing with their proof named in the ledger and no page
 yet. That is a backlog in code with a test holding it honest, not a gap.
+
+### CLOSED OUT — the section finished rather than stopped
+
+The ledger opened at 13 engines sold and 39 pending. **All 39 were written**, in ten
+batches, each proof read off its own engine rather than recalled:
+
+```
+53 answer pages          (was 14)
+52 of 58 engines sold    (was 13)
+ 6 operator-only         admin billing, owner economics, payout approvals,
+                         payout execution, comms events, the commercial model
+ 0 pending               the bucket is empty, not aspirational
+```
+
+A sample of what the later pages carry, because the proof is the whole point: bought
+followers refused on ARITHMETIC rather than principle (a feed ranks by engagement
+RATE, so 1,000 silent accounts divide the same engagement across a bigger denominator
+and the page reaches FEWER real people after the purchase); ad RECREATION never
+offered, because an advert is a copyright work and the liability lands on the customer
+who publishes rather than the tool that generated it; keyword figures labelled
+PLACEHOLDERS rather than estimates, because an estimate uncorrelated with the thing it
+estimates is not an estimate; a stock avatar licence that forbids implying personal
+endorsement, so the gateway refuses before it renders; a video dimension whose inputs
+were never measured returning NULL instead of a score; and the acquisition page whose
+whole argument is one number — with 0 people contacted, it is not the product, the
+price, the site or the copy.
+
+**Three more defects found in the writing, each fixed at the root:**
+
+1. **Two pages had already shipped with markdown the renderer cannot render** — a table
+   that came out as a wall of pipes and an ordered list that came out as one paragraph
+   beginning "1.". `renderBody` supports `## `, `- `, links and bold, and nothing else.
+   Status, schema, canonical and lengths were all green on both. A test now derives the
+   supported syntax FROM the renderer and fails on anything else, and the driver reads
+   the rendered article body.
+2. **A length that was only wrong as served.** One description measured 161 characters
+   and served at 166: React escapes an apostrophe as `&#x27;`, six characters for one.
+   My first escaped-length formula missed the apostrophe entirely and passed it. Both
+   the test and the driver measure the served form now, and the copy uses typographic
+   apostrophes, which are one character and are never escaped.
+3. **My own coverage floor was a tripwire, not a guard.** `assert.ok(covered >= 21)`
+   would have passed through a collapse to 21. It is now 52 with the cast-count
+   discipline written beside it: this floor only ever rises.
