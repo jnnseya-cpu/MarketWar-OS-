@@ -10852,3 +10852,158 @@ can use it, and that a row arriving with a usable link costs no search at all.
 A re-import can no longer blank a stored field by leaving its column empty. On
 Firestore it never could; the memory store now matches. Nothing else about import
 or merge changed, and no capability was removed.
+
+---
+
+## §166 — A page selling each feature, and a ledger saying which features have none
+
+**The brief.** *"Write and program blog on each features, each functionality, so you
+need to sell these features or functionality with its USP."*
+
+**What already existed, because the first rule here is to look.** `feature-pages.ts`
+— 14 question-titled answer pages at `/features/<slug>`, each carrying a `proof`
+(the thing only this platform can say) and a `limit` (the honest caveat), with the
+route, the FAQ schema, the breadcrumb, the canonical, the hub and the sitemap all
+DERIVED from that one array. Adding an entry ships a complete indexable page.
+Nothing needed building; the gap was coverage.
+
+**And the gap was invisible.** `ENGINE_REGISTRY` holds 58 engines. 14 pages covered
+13 of them. The file's own doctrine argues — correctly — that 58 thin pages is a
+Google scaled-content penalty that demotes the whole domain rather than just the
+thin pages, so a capability with nothing specific to say is better left unwritten.
+**But nothing recorded WHICH 45 were left, or why.** An engine deliberately
+unwritten was indistinguishable from one nobody had reached, and the question
+"is every feature sold?" had no answer short of reading two files and diffing
+them by hand.
+
+### The ledger, which is the "program" half of the brief
+
+`src/shared/feature-coverage.ts`. Every engine is either sold by a page or carries
+a recorded reason it is not, in one of three categories:
+
+- **`owner-only`** (6) — admin billing, owner economics, payout approvals, payout
+  execution, communication events, the commercial model. Real engines with an
+  audience of one; a public page selling the operator's own till is the thin
+  content the policy exists to demote.
+- **`pending`** (27) — customer-facing, with the proof IDENTIFIED and named in the
+  ledger, page still to write. The next session writes from the code rather than
+  re-deriving which engines matter.
+- **`no-proof`** (0) — customer-facing with nothing specific to say yet. The honest
+  category, and it must never become a dumping ground.
+
+`featureCoverage()` computes every count; nothing about coverage is typed in prose,
+because a number like that is wrong within a week and this repository has shipped
+that exact defect twice. **A test fails the build when an engine is in neither
+set**, when a ledger reason is shorter than a reason, or when an engine is in both.
+
+### Twelve pages written, 13 → 25 engines sold
+
+Each proof was read off the engine, not recalled: ACU pricing (100 ACUs to the
+pound, floor 2×, standard 4× — and the engine's own comment refusing the usual
+error, that 4× is a 300% markup and not a 400% margin, because gross margin cannot
+exceed 100%); the AI gateway (reserve → execute → reconcile, so **a provider
+failure costs the customer nothing**, 6 models, 5 routing modes, a circuit breaker
+rather than a retry); the inbox (an AI reply is a DRAFT, never auto-sent, across 9
+channels); attribution (U-shaped, no wall-clock, no randomness, so a report is
+reproducible — and an unattributed sale stays unattributed rather than being
+sprinkled across channels to make the pie reach 100%); the content factory (26
+output types, and a regulated claim that is inferred or unsourced is BLOCKED, not
+hedged); the war room (no knocking copy, ever, and no fabricated competitor
+metrics); the intent radar (exactly 10 signal types, and a signal you did not
+supply is never invented to complete the picture); crisis command (13 signals, 10
+factors, 4 levels, nothing auto-published); claims and compliance (4 claim states,
+an unsubstantiated superlative never publishable, AI assets always disclosed);
+RightsGuard (17 rights checked, publishing blocked when any right required for the
+intended USE is missing); customer voice (12 sources, never fabricates feedback or
+a testimonial); loyalty (k-factor as a labelled estimate, a referral invite needing
+the recipient's consent inside the 5-touches-in-7-days cap).
+
+### THE DEFECT THE DRIVER FOUND: we were failing the check we sell, for the third time
+
+`shared/seo-limits.ts` exists because this has happened twice already, and its own
+header names both: §109 found eight marketing pages outside the bounds our audit
+scores customers on, then every blog article was found failing the same two checks.
+The fix put the numbers in one shared module and wired the BLOG renderer to them.
+
+**The answer pages — the ones whose whole job is selling — were never wired up.**
+`generateMetadata` read `p.description` straight into the served HTML. Driven
+against a real production build:
+
+```
+16 of 22 descriptions over DESC_MAX (165)   — 10 of them pre-existing
+ 2 of 22 titles over TITLE_MAX (65)         — both pre-existing
+```
+
+Title is weight 10 in our own crawler and description weight 8. **18 of the 100
+points, failed on our own selling pages, by the engine we charge people to run on
+their site.** Fixed twice over: the renderer now clamps through `fitTitle` /
+`fitDescription` like the blog, so a future page written by somebody who did not
+count cannot serve a truncated snippet — and all 18 strings were rewritten INSIDE
+the bounds, because `fitDescription` cutting a sentence reads as a scrape. A test
+imports the bounds from the shared module and asserts every page passes; nothing
+hard-codes 165.
+
+**And my own driver typed those thresholds.** First version checked 50–165 and a
+title bound of 70; the real `TITLE_MAX` is 65. A check with a typed threshold keeps
+passing after the rule moves, which is the same defect in the instrument instead of
+the product. It imports `titleOk` / `descriptionOk` now, and additionally reads the
+SERVED HTML rather than the array — the array being short and the page serving
+something short are two different claims.
+
+### TWO MORE DEFECTS THE PAGES EXPOSED
+
+**1. The newsletter would have resent last week's issue.** `rotate` picked its
+start index with `hash(week) % pages.length` — deterministic, so the same week
+gives the same issue, but carrying **no guarantee that two CONSECUTIVE weeks
+differ**. With 14 pages the test's date pair happened to miss; at 22 pages it
+collided, and `tests/features.test.mjs` failed on exactly the property it was
+written to protect. The index is now a week ORDINAL, so consecutive weeks advance
+by the slot count and cannot repeat while there are more pages than slots. The test
+checked two fixed dates — which could only ever catch this by accident — and now
+asserts the property across 30 consecutive weeks.
+
+**2. The two content clusters were not connected at all.** 13 articles, 26 answer
+pages, and **zero links in either direction** — the answer pages received no
+internal link equity from the article cluster, and a reader who had just read about
+a problem was never routed to the page that answers it. One link each way, on the
+hubs, rather than links stuffed into article bodies: a route between clusters is
+not a keyword exercise.
+
+### Mutation tested — 8 mutants, 7 killed, 1 equivalent and recorded
+
+| Mutant | Result |
+| --- | --- |
+| An engine silently falls out of the ledger | killed |
+| A ledger reason becomes "later" | killed |
+| The hash-modulo newsletter rotation returns | killed |
+| Coverage reported as all 58 engines sold | **survived first** — my assertion compared `c.line` against `c.covered`, both from the same expression. A value compared to itself proves it exists and nothing else. The test now computes the covered set independently. |
+| A bucket double-counts a covered engine | **equivalent** — the page/ledger disjointness is asserted separately, so the guard is unreachable while that holds. Recorded rather than "fixed". |
+| One description back over `DESC_MAX` | killed |
+| The renderer stops clamping the title | killed |
+| A description drops under `DESC_THIN` | killed |
+
+### Driven — `npm run drive:pages`, against a real `next build`
+
+```
+1. all 26 answer pages return 200
+2. the hub links to every one; all categories render
+3. the sitemap contains every page, and claims no page that does not exist
+4. FAQPage JSON-LD on each, carrying THAT page's own first question
+5. the served title and description inside the audit's own bounds
+6. every engine accounted for: sold, or recorded as not sold
+```
+
+Point 4 matters more than it reads: a page carrying a correct-looking FAQ block
+that holds another page's questions is a defect no "does it contain FAQPage"
+assertion can see.
+
+**WHAT THIS CANNOT PROVE, printed by the driver itself:** whether any of these
+pages RANK or get cited by an assistant. That is months of other people's
+behaviour and no driver measures it. What is proven is that each page is served,
+reachable, in the sitemap, carrying its own schema, and passing the same checks
+this platform charges customers to run on their own site.
+
+### Still outstanding, and visible rather than implied
+
+27 engines are customer-facing with their proof named in the ledger and no page
+yet. That is a backlog in code with a test holding it honest, not a gap.

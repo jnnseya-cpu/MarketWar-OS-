@@ -56,7 +56,8 @@
     "drive:secrets": "node --import tsx scripts/drive-credential-guard.mjs",
     "drive:social": "node --import tsx scripts/drive-social-website.mjs",
     "drive:chain": "node --import tsx scripts/drive-cold-chain.mjs",
-    "drive:import": "node --import tsx scripts/drive-imported-list.mjs"
+    "drive:import": "node --import tsx scripts/drive-imported-list.mjs",
+    "drive:pages": "node --import tsx scripts/drive-feature-pages.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",

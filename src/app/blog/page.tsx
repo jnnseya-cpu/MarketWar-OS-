@@ -42,7 +42,21 @@ export default async function BlogPage() {
             ))}
           </div>
         )}
-        <p className="mt-8 text-sm text-slate-500">
+        {/* THE TWO CLUSTERS WERE NOT CONNECTED AT ALL. The articles answer a
+            topic; the answer pages answer a question about a capability and are
+            where the product gets sold. There was no link in either direction —
+            so the answer pages received no internal link equity from the
+            articles, and a reader who had just read about a problem was never
+            routed to the page that explains how it is solved. One link each
+            way, on the hubs, rather than links stuffed into article bodies:
+            this is a route between clusters, not a keyword exercise. */}
+        <p className="mt-8 text-sm text-slate-400">
+          Looking for something specific rather than a read?{" "}
+          <Link href="/features" className="text-emerald-400 hover:text-emerald-300">The answers index</Link>{" "}
+          takes the questions businesses actually ask — what to pay an affiliate, why an advert looks stretched,
+          what an AI action costs — and answers each with the arithmetic.
+        </p>
+        <p className="mt-3 text-sm text-slate-500">
           Want these in your inbox? <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">Subscribe via Contact</Link> — capped and consented, like everything we build.
         </p>
       </Prose>

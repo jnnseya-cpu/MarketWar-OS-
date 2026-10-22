@@ -41,6 +41,13 @@ export default function FeaturesHub() {
           If you would rather see it than read about it, <Link href="/audit">the free audit</Link> reads your actual page
           and gives you three true things about it in about fifteen seconds, with no account.
         </p>
+        {/* The route back to the other cluster. Neither hub linked to the other,
+            so each was an island: the articles got no traffic from the pages
+            that sell, and the pages got no internal links from the articles. */}
+        <p className="mt-3 text-sm text-slate-400">
+          For the longer reads — creator payout economics, what to do when marketing is not working —{" "}
+          <Link href="/blog">the articles</Link> take a subject rather than a single question.
+        </p>
       </Prose>
     </MarketingShell>
   );

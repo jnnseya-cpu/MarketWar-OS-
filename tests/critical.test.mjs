@@ -7,6 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Ad copy extraction — a colour spec was printed on a real ad's CTA button
@@ -3887,9 +3888,28 @@ test("the commission rates and guardrail thresholds in the copy are the engine's
   assert.equal(fees.ADMIN_FEE_RATE, 0.03);
   assert.equal(fees.ADMIN_FEE_BASIS, "processing_fee");
 
-  // The counts the platform advertises for these two libraries.
-  assert.equal(pages.FEATURE_PAGES.length, 14, "the site says 14 answer pages");
-  assert.equal(arts.SEO_ARTICLES.length, 13, "the site says 13 blog articles");
+  // THE COUNTS, AND THIS ASSERTION USED TO GUARD A CLAIM THAT DOES NOT EXIST.
+  //
+  // It read `assert.equal(FEATURE_PAGES.length, 14, "the site says 14 answer
+  // pages")` — a tripwire on a number NOTHING in `src/` publishes. The hub
+  // renders `FEATURE_PAGES.filter(...)`, the sitemap maps over the array, and
+  // no customer-facing string states a total. So the equality could only ever
+  // fail for the one reason that is not a defect: somebody writing another
+  // page. That is the second shape this repository keeps hitting — a check that
+  // fails for a reason unrelated to what it tests — and the cost is that a
+  // guard which cries wolf gets its number bumped without being read.
+  //
+  // What matters is the PROPERTY, so that is what is asserted: the libraries
+  // only grow, and the count stays DERIVED wherever it is shown. A typed total
+  // in prose is the §151 defect ("32 checks" against a code that said 31).
+  assert.ok(pages.FEATURE_PAGES.length >= 22, `${pages.FEATURE_PAGES.length} answer pages — the cluster shrank, which needs an explicit reason`);
+  assert.ok(arts.SEO_ARTICLES.length >= 13, `${arts.SEO_ARTICLES.length} articles — the cluster shrank`);
+
+  for (const f of ["src/app/features/page.tsx", "src/app/blog/page.tsx", "src/app/page.tsx", "src/app/how-it-works/page.tsx"]) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+    const typed = src.match(/\b(\d{2,3})\s+(answer pages|questions answered|feature pages|articles|guides)\b/i);
+    assert.equal(typed, null, `${f} types the count "${typed?.[0]}" — derive it from the array or it is wrong within a week`);
+  }
 });
 
 test("no customer-facing copy asserts a market statistic as measured", async () => {
