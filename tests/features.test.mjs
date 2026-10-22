@@ -14566,6 +14566,59 @@ test("feature pages: each one answers a question and says something only we can 
   }
 });
 
+test("feature pages: we pass the title and description check we sell", async () => {
+  // THE THIRD TIME THIS EXACT DEFECT HAS SHIPPED, and the file that was created
+  // to end it names the first two in its own header: §109 found eight marketing
+  // pages outside the bounds our audit scores customers on, then every blog
+  // article was found failing the same two checks. The fix moved the numbers
+  // into `shared/seo-limits.ts` and wired the BLOG renderer to them — and left
+  // the ANSWER PAGES, whose entire job is selling, reading `p.description`
+  // straight into the metadata.
+  //
+  // Driven against a real build: 16 of 22 descriptions over DESC_MAX and 2
+  // titles over TITLE_MAX. Title is weight 10 in our own crawler and
+  // description weight 8, so our selling pages were failing 18 of the 100
+  // points by the engine we charge people to run on their site.
+  //
+  // THE BOUNDS ARE IMPORTED, NEVER TYPED. A test that hard-codes 165 is the
+  // §151 defect wearing a lab coat: it keeps passing after somebody changes the
+  // rule, and then the pages and the audit disagree in silence.
+  const { titleOk, descriptionOk, descriptionThin, TITLE_MAX, DESC_MIN, DESC_MAX, DESC_THIN } =
+    await import("../src/shared/seo-limits.ts");
+
+  // MEASURED AS SERVED, NOT AS WRITTEN — and only the driver caught this.
+  //
+  // `can-you-say-that-in-an-advert` had a 159-character description, inside the
+  // band by every check here, and SERVED at 189: it quoted three phrases, and
+  // each `"` becomes `&quot;` in the attribute — six characters for one. The
+  // crawler reads the served HTML, so 189 was the real length and the page was
+  // over DESC_MAX while the array said it was fine. A string length is not the
+  // length of what a search engine receives.
+  const asServed = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").length;
+
+  for (const p of feat.FEATURE_PAGES) {
+    assert.ok(titleOk(p.title),
+      `${p.slug}: title is ${p.title.length} characters, outside the ${TITLE_MAX}-character bound our own audit scores`);
+    assert.ok(descriptionOk(p.description),
+      `${p.slug}: description is ${p.description.length} characters, outside ${DESC_MIN}-${DESC_MAX}`);
+    assert.ok(asServed(p.description) <= DESC_MAX,
+      `${p.slug}: description is ${p.description.length} characters but serves as ${asServed(p.description)} once HTML-escaped — over ${DESC_MAX}. Use typographic quotes or none.`);
+    assert.ok(asServed(p.title) <= TITLE_MAX,
+      `${p.slug}: title serves as ${asServed(p.title)} characters once escaped — over ${TITLE_MAX}`);
+    // A description inside the bounds can still hand most of the snippet back
+    // to the engine, which is the thing Bing reported and our own audit missed.
+    assert.ok(!descriptionThin(p.description),
+      `${p.slug}: description is ${p.description.length} characters, under ${DESC_THIN} — legal and still wasting the snippet`);
+  }
+
+  // AND THE RENDERER CLAMPS, so a future page written by somebody who did not
+  // count cannot serve a truncated result. The copy above is inside the bounds
+  // on its own; this is the floor under it.
+  const page = readFileSync(new URL("../src/app/features/[slug]/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /fitTitle\(p\.title/, "the answer-page title is not clamped to the bound we sell");
+  assert.match(page, /description: fitDescription\(p\.description\)/, "the answer-page description is not clamped");
+});
+
 test("feature pages: the links resolve and the cluster is genuinely interlinked", async () => {
   const slugs = new Set(feat.FEATURE_PAGES.map((p) => p.slug));
   let internal = 0;
@@ -14599,6 +14652,63 @@ test("feature pages: the links resolve and the cluster is genuinely interlinked"
   // In the sitemap, derived rather than typed.
   const sitemap = readFileSync(new URL("../src/app/sitemap.ts", import.meta.url), "utf8");
   assert.match(sitemap, /FEATURE_PAGES\.map/, "the answer pages are not in the sitemap");
+});
+
+test("every engine is either sold by a page or has a recorded reason it is not", async () => {
+  // THE GAP NOBODY COULD SEE. `feature-pages.ts` sells a subset of the engine
+  // registry, deliberately — its own doctrine argues that a page per feature
+  // produced at volume is the pattern Google's scaled-content policy demotes,
+  // and that it takes the whole domain down rather than just the thin pages.
+  //
+  // But NOTHING RECORDED WHICH ENGINES WERE LEFT, OR WHY. An engine left
+  // unwritten on purpose was indistinguishable from one nobody had reached, so
+  // the question "is every feature sold?" had no answer short of reading both
+  // files and diffing them by hand. This makes the answer compulsory.
+  const { featureCoverage, UNWRITTEN } = await import("../src/shared/feature-coverage.ts");
+  const c = featureCoverage();
+
+  assert.deepEqual(c.unaccounted, [],
+    `these engines are in neither the pages nor the ledger, so nobody can tell whether they were skipped on purpose: ${c.unaccounted.join(", ")}`);
+  assert.deepEqual(c.orphanPages, [],
+    `these pages claim an engine that does not exist: ${c.orphanPages.join(", ")}`);
+
+  // EVERY REASON SAYS SOMETHING. A ledger of empty reasons is a list of
+  // excuses, and it would pass the assertion above while answering nothing.
+  const ledgerIds = new Set();
+  for (const u of UNWRITTEN) {
+    assert.ok(!ledgerIds.has(u.engineId), `${u.engineId} is in the ledger twice`);
+    ledgerIds.add(u.engineId);
+    assert.ok(["owner-only", "pending", "no-proof"].includes(u.why), `${u.engineId} has an unknown reason "${u.why}"`);
+    assert.ok(u.proof.length > 60, `${u.engineId} is unwritten with no stated reason — that is the gap this ledger exists to close`);
+  }
+
+  // AN ENGINE CANNOT BE IN BOTH. A page plus a "still to write" entry is a
+  // ledger that disagrees with the product.
+  for (const p of (await import("../src/shared/feature-pages.ts")).FEATURE_PAGES) {
+    assert.ok(!ledgerIds.has(p.engineId),
+      `${p.engineId} has a page AND a ledger entry saying it does not — remove the ledger entry`);
+  }
+
+  // THE COVERED SET IS COMPUTED HERE INDEPENDENTLY, and my first version of
+  // this was vacuous: it asserted `c.line` contained `c.covered.length`, both
+  // of which come from the same expression inside the module. A mutant that
+  // reported ALL 58 engines as sold passed it, because the sentence and the
+  // number agreed with each other while both were wrong. An assertion that
+  // compares a value to itself proves the value exists, nothing more.
+  const engines = (await import("../src/shared/engine-registry.ts")).ENGINE_REGISTRY.map((e) => e.id);
+  const pageEngines = new Set((await import("../src/shared/feature-pages.ts")).FEATURE_PAGES.map((p) => p.engineId));
+  const trulyCovered = engines.filter((id) => pageEngines.has(id));
+  assert.deepEqual(c.covered, trulyCovered,
+    `the coverage report claims ${c.covered.length} engines are sold by a page; counting the pages gives ${trulyCovered.length}`);
+  assert.equal(c.total, engines.length);
+  assert.match(c.line, new RegExp(`${trulyCovered.length} of ${engines.length} engines`),
+    "the summary sentence disagrees with the pages that exist");
+  assert.ok(trulyCovered.length >= 21, `${trulyCovered.length} engines sold — coverage went backwards`);
+
+  // And the three buckets partition the rest: no engine counted twice, none lost.
+  const accounted = new Set([...c.covered, ...c.ownerOnly, ...c.pending, ...c.noProof]);
+  assert.equal(accounted.size, engines.length,
+    `${accounted.size} engines accounted for out of ${engines.length} — a bucket is double-counting or dropping one`);
 });
 
 // ---------------------------------------------------------------------------
@@ -16536,6 +16646,22 @@ test("newsletter: the same week always produces the same issue", () => {
   const next = news.buildIssue({ week: "2026-08-24", unsubscribeHref: "https://example.com/u", env: {} });
   assert.notDeepEqual(a.links.map((l) => l.url), next.links.map((l) => l.url),
     "every week would carry identical content");
+
+  // ONE PAIR OF WEEKS PASSED BY LUCK FOR A YEAR. The start index was
+  // `hash(week) % pages`, which is deterministic but carries no guarantee that
+  // two CONSECUTIVE weeks differ — and the moment the answer-page library grew
+  // from 14 to 22, this exact pair collided and subscribers would have been
+  // sent last week's email again. Checking two fixed dates could only ever
+  // catch that by accident, so the property is now asserted across a span.
+  const weeks = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date(Date.UTC(2026, 0, 5) + i * 604_800_000);
+    return d.toISOString().slice(0, 10);
+  });
+  const issues = weeks.map((w) => news.buildIssue({ week: w, unsubscribeHref: "https://example.com/u", env: {} }).links.map((l) => l.url).join("|"));
+  for (let i = 1; i < issues.length; i++) {
+    assert.notEqual(issues[i], issues[i - 1],
+      `${weeks[i]} carries exactly what ${weeks[i - 1]} carried — a resend, not an issue`);
+  }
 });
 
 test("newsletter: the week key is Monday-anchored, so a week has one issue", () => {

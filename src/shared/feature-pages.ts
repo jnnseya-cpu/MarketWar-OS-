@@ -71,7 +71,7 @@ export const FEATURE_PAGES: FeaturePage[] = [
     engineId: "profit-guard-economics",
     title: "How much can you afford to pay an affiliate?",
     description:
-      "The arithmetic that decides an affiliate rate: contribution, the margin you protect, and the ceiling above which a sale costs you money. With the numbers worked through on a £100 product.",
+      "The arithmetic that sets an affiliate rate: contribution, the margin you protect, and the ceiling above which a sale costs you money.",
     category: "Pricing and margin",
     keywords: ["how much to pay affiliates", "affiliate commission rate", "affiliate margin", "what commission can i afford", "affiliate programme economics"],
     proof:
@@ -121,7 +121,7 @@ Run [a free audit](/audit) of your own site first if you have not — there is n
     engineId: "share2earn",
     title: "Why some products cannot carry a commission at all",
     description:
-      "Thin-margin products cannot fund a percentage, however small it looks against the price. What to do instead of quietly cutting the rate — and why a headline rate that shrinks is worse than no programme.",
+      "Thin-margin products cannot fund a percentage, however small it looks. What to do instead of quietly cutting the rate you advertised.",
     category: "Pricing and margin",
     keywords: ["low margin affiliate programme", "product margin commission", "can i afford an affiliate programme", "thin margin marketing", "commission on low margin products"],
     proof:
@@ -177,7 +177,7 @@ Related: [how much you can afford to pay](/features/how-much-to-pay-an-affiliate
     engineId: "share2earn",
     title: "What should you pay a creator who has no followers?",
     description:
-      "Most programmes turn away anyone under 10,000 followers and lose the person who was about to be big. The two-door model: 0.5% with no gate at all, 0.75% and 1% for a verified audience.",
+      "Most programmes turn away anyone under 10,000 followers. The two-door model: 0.5% with no gate, then 0.75% and 1% for a verified audience.",
     category: "Creators and affiliates",
     keywords: ["pay micro influencers", "creator commission no followers", "affiliate programme for small creators", "influencer commission tiers", "share to earn"],
     proof:
@@ -225,7 +225,7 @@ Next: [what you can afford](/features/how-much-to-pay-an-affiliate), [which prod
     engineId: "payout-fees",
     title: "How do you pay a creator in a country with no bank account?",
     description:
-      "Nine payout rails including African mobile money, what each actually costs, and the tax question nobody answers: what happens when somebody's country issues no individual tax reference.",
+      "Nine payout rails including African mobile money, what each costs, and what happens when a country issues no individual tax reference.",
     category: "Creators and affiliates",
     keywords: ["pay affiliates internationally", "mobile money payouts", "pay creators in africa", "affiliate payout methods", "m-pesa payouts business"],
     proof:
@@ -290,7 +290,7 @@ More: [what creators earn](/features/what-commission-do-creators-earn), [the tax
     engineId: "payout-identity",
     title: "Do you have to withhold tax when you pay an affiliate?",
     description:
-      "Affiliates are not employees, so they are paid gross — but the platform still has reporting duties. What gets reported, what the creator sees, and why identity is checked before the first payout rather than the tenth.",
+      "Affiliates are paid gross, but the platform still has reporting duties. What is reported, and why identity is checked before payout one.",
     category: "Creators and affiliates",
     keywords: ["affiliate tax reporting", "do i withhold tax from affiliates", "dac7 platform reporting", "paying creators tax uk", "1099 affiliate equivalent"],
     proof:
@@ -344,9 +344,9 @@ A number their country does not issue. A bank account, if mobile money is how th
   {
     slug: "resize-an-ad-for-every-placement",
     engineId: "ad-canvas",
-    title: "How do you resize one ad for Instagram, Stories and a banner without it looking stretched?",
+    title: "Why does your advert look stretched in an Instagram story?",
     description:
-      "Why an ad squeezed into a story looks wrong, what each platform actually covers with its own interface, and how to lay one design out for five placements without regenerating the artwork.",
+      "Why an ad squeezed into a story looks wrong, what each platform covers with its own interface, and how one design lays out for five sizes.",
     category: "Ads and creative",
     keywords: ["resize ad for instagram story", "ad sizes social media", "one ad multiple placements", "instagram story safe area", "ad creative resize"],
     proof:
@@ -390,7 +390,7 @@ Related: [making an ad from your own photograph](/features/make-an-ad-from-your-
     engineId: "ad-styles",
     title: "How do you make an ad from your own photos?",
     description:
-      "Your own photographs beat generated artwork for most small businesses, and they need one thing to work as ads: the copy has to stay readable over them. How that is handled automatically.",
+      "Your own photographs beat generated artwork for most small firms. They need one thing: the copy has to stay readable over them.",
     category: "Ads and creative",
     keywords: ["make ads from photos", "turn photos into ads", "diy social media ads", "small business ad maker", "ad from my own pictures"],
     proof:
@@ -576,7 +576,7 @@ Whether your prices are right. Whether your offer is compelling. Whether the peo
     engineId: "ai-accuracy",
     title: "Why AI assistants never mention your business",
     description:
-      "When somebody asks an assistant for a plumber in their town, something decides which names come back. What it reads, why most small business sites are invisible to it, and what you can actually change.",
+      "Something decides which names an assistant returns for \"a plumber near me\". What it reads, and why most small business sites are invisible.",
     category: "Getting found",
     keywords: ["ai search visibility", "chatgpt recommend my business", "generative engine optimisation", "appear in ai answers", "llm visibility business"],
     proof:
@@ -705,9 +705,9 @@ Directory submissions in bulk, paid link packages, and anybody promising a posit
   {
     slug: "ask-customers-for-reviews-properly",
     engineId: "review-requests",
-    title: "How do you ask for reviews without annoying customers or breaking the rules?",
+    title: "How do you ask for reviews without breaking the rules?",
     description:
-      "When to ask, what to say, which platform to send them to, and why filtering out the unhappy ones is both against the rules and worse for business than the bad review would have been.",
+      "When to ask, what to say, where to send them, and why filtering out the unhappy ones breaks the rules and costs more than a bad review.",
     category: "Reputation",
     keywords: ["how to ask for reviews", "get more google reviews", "review request template", "review gating rules", "customer review strategy"],
     proof:
@@ -839,7 +839,7 @@ Only when those have been tried does the number decide it. And when it does, it 
     engineId: "sentinel",
     title: "Who can see your data on a multi-tenant marketing platform?",
     description:
-      "What actually separates one business's data from another's on shared software, the failure modes that are common, and what to ask a vendor before you put your customer list in.",
+      "What separates one business's data from another's on shared software, and what to ask a vendor before you upload your customer list.",
     category: "Trust and security",
     keywords: ["multi tenant data security", "is my data safe saas", "marketing platform security", "customer data protection saas", "tenant isolation"],
     proof:
@@ -901,6 +901,784 @@ Related: [the tax and identity handling for creator payouts](/features/creator-p
 A vendor that answers those in plain sentences, names the things that are not switched on yet, and does not offer a certificate as a substitute for an answer.
 
 Certificates describe a process that existed on the day of the audit. What you are buying is the behaviour of a system today.`,
+  },
+  // ───────────────────────────────────────────── THE PRICE OF THE WORK ──
+  {
+    slug: "what-does-an-ai-action-cost",
+    engineId: "acu",
+    title: "What does an AI marketing action actually cost?",
+    description:
+      "Why AI marketing tools hide the price until the invoice, what a single action costs here, and what happens when your balance runs out mid-job.",
+    category: "Pricing and margin",
+    keywords: ["ai marketing cost", "how much does ai content cost", "ai credits pricing", "cost per ai action", "ai marketing pricing transparency"],
+    proof:
+      "Every action shows its price before it runs, in a unit you can read: 100 ACUs to the pound, so a 4-ACU action costs 4p. The floor is 2× provider cost and the standard charge is 4×, and the engine's own comment refuses the usual marketing error — a 4× charge is a 300% markup, not a 400% margin, because a gross margin cannot exceed 100%. An action you cannot pay for does not start: nothing is charged, no attempt is counted, and a top-up continues it.",
+    limit:
+      "It cannot tell you what a piece of work is worth to your business. It tells you what it costs before you authorise it, which is the half most AI tools leave until the bill arrives.",
+    related: ["what-happens-when-the-ai-provider-fails", "stop-a-campaign-losing-money", "how-much-to-pay-an-affiliate"],
+    faq: [
+      { q: "Why credits instead of a flat monthly fee?", a: "Because a flat fee has to be priced for the heaviest user, so everybody else subsidises them. A credit is the cost of the work you actually asked for, and the price of each action is shown before it runs." },
+      { q: "What happens if I run out mid-job?", a: "The job waits. Nothing is charged for the pass that could not be paid for, no attempt is counted against you, and topping up continues the same job rather than starting it again." },
+      { q: "Do you mark up the AI provider's price?", a: "Yes, and the multiple is stated: never below 2× provider cost, 4× as standard. A platform claiming to resell AI at cost is either losing money or not telling you where it makes it." },
+      { q: "Can I see the provider's raw cost?", a: "No. You see the ACU price of the action before you run it. The provider cost is the input to that number, and exposing it would turn every price into a negotiation about our supply contracts rather than a decision about your marketing." },
+    ],
+    body: `Most AI marketing tools answer the pricing question with a seat. You pay per user per month, the limits are described as "fair use", and the first time you learn what a video or a long report costs is when the limit stops you in the middle of one.
+
+That model exists because it is easy to sell, not because it is fair. A flat fee has to be priced for the heaviest account on it, which means the quiet accounts pay for the loud ones.
+
+## The unit, and why you can read it
+
+Work here is priced in ACUs. **100 ACUs is one pound.** A 4-ACU action costs four pence, and the price is on the button before you press it.
+
+That is the whole design goal: the number you need in order to decide is in front of you at the moment you are deciding, not in a usage report at the end of the month.
+
+## The markup, stated rather than implied
+
+Every AI action clears a floor of **2× what the provider charges us**, and the standard is **4×**.
+
+We say that plainly because the alternative — "AI included", "unlimited\*" — is a claim nobody can hold. There is a real cost per request behind every AI feature in every product you have ever used, and a vendor who will not name their multiple has one anyway.
+
+One correction, because the industry gets it wrong constantly and the engine's own source comment says so: **a 4× charge is a 300% markup, not a 400% margin.** Gross margin cannot exceed 100%. Markup and margin are different measures, and a vendor quoting "400% margins" is either confused or counting on you being.
+
+## What happens when the balance is empty
+
+This is the part worth reading, because it is where most credit systems behave badly.
+
+A door that starts long work **checks** whether you can afford it; it does not charge first and work it out later. If you cannot pay for the next pass:
+
+- the job **waits** — it is not failed and not discarded,
+- **nothing is charged** for the pass that could not run,
+- **no attempt is counted** against any retry limit,
+- a top-up **continues the same job**, from where it stopped.
+
+And if a pass reaches no provider at all — a refused request, a malformed one — the charge is **refunded**, because you are charged once per provider call that actually happens.
+
+## What this does not do
+
+It does not tell you whether the work is worth buying. A £4 report that wins a £2,000 customer is cheap and a 4p post nobody reads is expensive, and no pricing engine can tell those apart in advance.
+
+What it removes is the specific unfairness of not knowing. You can see [what a campaign guardrail refuses before it spends](/features/stop-a-campaign-losing-money), and [what the arithmetic says you can afford to pay an affiliate](/features/how-much-to-pay-an-affiliate), using the same contribution maths.
+
+## The question to ask any AI vendor
+
+Not "is AI included". Ask: **what does one action cost, where is that number shown, and what happens to my job when I run out?**
+
+A vendor who can answer all three has thought about your side of the transaction. The plans are on [the pricing page](/choose-plan), and every action's price is visible inside the product before you spend it.`,
+  },
+  {
+    slug: "what-happens-when-the-ai-provider-fails",
+    engineId: "modelgate",
+    title: "What happens when the AI provider fails mid-job?",
+    description:
+      "AI providers have outages, rate limits and bad days. What that costs you, and why a gateway that reserves before charging bills nothing.",
+    category: "Reliability",
+    keywords: ["ai provider outage", "openai downtime marketing", "ai api rate limit", "ai gateway fallback", "who pays for a failed ai request"],
+    proof:
+      "ACUs are RESERVED before a provider call and reconciled after it, so a provider failure costs you nothing — not a partial charge, not a retry you pay for twice. The registry holds 6 models across 3 providers with 5 routing modes, prices are data rather than code so they change without a deployment, and a provider that starts failing is taken out of rotation by a circuit breaker rather than being retried into. No feature here names a provider, so any one of them can be disabled instantly.",
+    limit:
+      "It cannot make an outage invisible. A job may wait longer than you would like. What it guarantees is that the waiting is free, that the work continues rather than restarting, and that no provider name is ever hardcoded into the feature you are using.",
+    related: ["what-does-an-ai-action-cost", "should-ai-send-your-customer-replies", "who-can-see-your-brands-data"],
+    faq: [
+      { q: "If the AI provider is down, am I charged?", a: "No. The charge is reconciled against what actually happened, and a provider failure reconciles to zero. A pass that reached no provider is refunded." },
+      { q: "Do you lock me to one AI company?", a: "No. Six models from three providers sit in one registry and the feature code never names a provider — it asks for a capability. A provider can be disabled instantly without touching the features that use it." },
+      { q: "What is a circuit breaker doing in a marketing tool?", a: "Stopping the expensive failure mode. When a provider starts refusing, retrying into it burns time and can burn money; the breaker opens, work routes elsewhere, and it half-opens later to test whether the provider has recovered." },
+      { q: "Can I choose cheapest over best?", a: "Yes — there are five routing modes, including lowest cost, fastest and highest quality. The default is automatic, which weighs cost against the quality a given task actually needs." },
+    ],
+    body: `Every AI feature you use is a request to somebody else's computer. That computer has outages, rate limits, deprecations and days when it is simply slow.
+
+The question nobody asks their vendor is: **when that happens, who pays?**
+
+## The three honest answers a vendor can give
+
+1. **You do.** The request was attempted, the credit is gone, try again. This is more common than you would expect, because charging on attempt is the simplest thing to build.
+2. **We do, and we absorb it quietly.** Which works until the outage is long, and then the feature is withdrawn or the price moves.
+3. **Nobody does, because the charge is reconciled against what actually happened.**
+
+This platform does the third, and the mechanism is the point.
+
+## Reserve, execute, reconcile
+
+A request reserves its ACUs before a provider is called. The call runs. Then the reservation is **reconciled against what actually happened**:
+
+- the provider answered — you are charged for the work,
+- the provider failed — **the reservation is released and you are charged nothing**,
+- the provider answered less than was asked for — a truncated draft is not a result, so the work **continues** rather than being delivered half-finished and billed in full.
+
+The important word is *reserved*. A system that charges first and refunds later is a system where your balance is wrong for as long as the refund takes, and where a failure during the refund leaves you out of pocket.
+
+## One registry, no provider names in the product
+
+Six models from three providers sit in a single registry, each with its capabilities, its quality score and its price. Feature code never asks for a named provider — it asks for a capability and a quality level, and the routing engine chooses.
+
+Two consequences you can check:
+
+- **Prices are data, not code.** A provider changing its rates does not require a deployment here.
+- **Any provider can be disabled instantly.** If one has an incident, or a term we will not accept, it leaves rotation without the features that use it noticing.
+
+There are **five routing modes** — automatic, lowest cost, fastest, highest quality, and pinned to one provider when you have a reason. Automatic is the default and weighs cost against the quality the task genuinely needs, which is why a social caption and a legal-sensitive page do not get the same model.
+
+## The circuit breaker, and why it saves you money
+
+When a provider starts failing, the naive behaviour is to retry. Retrying into a failing provider is how a job burns its whole invocation and returns nothing.
+
+So a failing provider trips a breaker: it is taken out of rotation, work routes to an alternative, and the breaker half-opens later to test one request before trusting it again. Your job moves instead of queueing behind something that is not working.
+
+## What it cannot do
+
+It cannot make an outage invisible, and it will not pretend to. If every route for a capability is degraded, the work waits — and because [no AI action here has a time limit](/features/what-does-an-ai-action-cost), waiting is not failing. It continues when the route recovers.
+
+What you should never accept is a vendor who cannot tell you what a failed request costs you. That is a question with a factual answer, and ours is: **nothing.**`,
+  },
+  // ─────────────────────────────────────── THE CONVERSATION AND THE SALE ──
+  {
+    slug: "should-ai-send-your-customer-replies",
+    engineId: "inbox",
+    title: "Should AI send your customer replies for you?",
+    description:
+      "The case against auto-replying to customers, what a drafted reply does instead, and how nine channels become one queue without anything leaving unread by a human.",
+    category: "Customer conversations",
+    keywords: ["ai customer reply", "should ai answer customers", "unified inbox small business", "ai email drafts", "auto reply risk"],
+    proof:
+      "An AI reply here is a DRAFT and is never auto-sent: a human presses send on every message, across all nine channels the inbox collapses into one queue — email, SMS, WhatsApp, web form, reviews, Facebook, Google, chat and missed calls. Summaries, priorities and forecasts are labelled estimates, and the engine will not fabricate a message, a contact or a metric to fill a gap.",
+    limit:
+      "It will not answer your customers while you sleep, and that is a refusal rather than a missing feature. If what you want is an autonomous agent talking to buyers unsupervised, this is the wrong product and you should know that before you pay for it.",
+    related: ["ask-customers-for-reviews-properly", "what-happens-when-the-ai-provider-fails", "which-marketing-channel-actually-made-the-sale"],
+    faq: [
+      { q: "Why won't it just send the reply?", a: "Because the cost of one wrong answer to a real customer is higher than the time saved on fifty right ones. A draft gets you the typing; a send gets you the liability." },
+      { q: "Which channels does it collapse into one place?", a: "Nine: email, SMS, WhatsApp, web form, reviews, Facebook, Google, chat and missed calls. One queue, prioritised, with how long each person has been waiting." },
+      { q: "Does it invent a summary when a thread is unclear?", a: "No. Summaries and priorities are labelled estimates and the engine never fabricates a message or a contact. An unclear thread reads as unclear." },
+      { q: "Can it still be used for marketing follow-up?", a: "Where a reply becomes an outbound marketing touch, consent applies and a cap of five touches in seven days applies with it. The inbox is not a loophole around the sending rules." },
+    ],
+    body: `There is a version of this feature every vendor sells: connect your channels, switch on AI, and let it answer. It demos beautifully.
+
+Here is what it looks like three weeks in. A customer asks whether you can do a job on the 14th. The model does not know your diary, so it produces a sentence that sounds like a yes. You find out when they arrive.
+
+## The rule, and it is not negotiable here
+
+**An AI reply is a draft. A human sends.**
+
+Not as a setting you can switch off. The engine's doctrine says replies are labelled drafts and are never auto-sent, and that is enforced in the engine rather than suggested in the documentation.
+
+The reason is an asymmetry. Across fifty routine enquiries, autonomy saves you an hour. On the fifty-first — the one about a refund, a deadline, an allergy, a legal question — it costs you the customer, and possibly more than the customer. Nobody notices the hour they saved; everybody remembers the sentence a machine sent in their name.
+
+## What you actually get, which is the typing
+
+The slow part of replying is not sending. It is reading the thread, remembering the context, and composing the first sentence. That is the part that is drafted for you:
+
+- every thread in **one queue** across **nine channels**,
+- prioritised, with **how long that person has been waiting** and whether you have breached your own promised response time,
+- a drafted reply in your own brand voice, ready to edit,
+- a pipeline view with a weighted forecast, **labelled an estimate**, because a forecast is a guess with arithmetic in it.
+
+You read, you adjust, you send. The work goes from twenty minutes to three, and a person is still accountable for every word that leaves.
+
+## Nine channels, one queue
+
+Email, SMS, WhatsApp, web form, reviews, Facebook, Google, chat and missed calls. A missed call is in that list on purpose: for a trade business it is the highest-intent message of the day and it arrives in a place nobody is watching.
+
+## Nothing is fabricated to fill a gap
+
+This matters more than it sounds. An inbox summary is a perfect place for a model to invent — a contact's name, a figure from a thread it misread, a metric that makes the dashboard look complete.
+
+The engine does not. It never fabricates a message, a contact or a metric, and every derived number is labelled an estimate rather than presented as a count. A thread with no information in it summarises as a thread with no information in it.
+
+## And it is not a way around the sending rules
+
+If a reply turns into marketing follow-up, it is marketing. Consent applies, and so does the cap of **five touches in seven days** — the same cap the campaign engines enforce. An inbox that quietly became a bulk sender would put every tenant on the shared sending domain at risk, which is the one cost that is not yours alone.
+
+Related reading: [how to ask for reviews without buying them](/features/ask-customers-for-reviews-properly), and [which channel actually produced the sale](/features/which-marketing-channel-actually-made-the-sale).
+
+## The question to ask
+
+Ask a vendor selling autonomous replies one thing: **what happens when it is wrong, and who is accountable?**
+
+If the answer is a confidence score, you are the accountability.`,
+  },
+  {
+    slug: "which-marketing-channel-actually-made-the-sale",
+    engineId: "attribution",
+    title: "Which marketing channel actually made the sale?",
+    description:
+      "Last-click credits whoever stood nearest the till. What a position-based split does instead, and where in the funnel the money leaks.",
+    category: "Measurement",
+    keywords: ["marketing attribution small business", "last click attribution problem", "which channel made the sale", "u shaped attribution", "funnel drop off analysis"],
+    proof:
+      "Credit is split by a U-shaped position-based model computed with no wall-clock and no randomness, so the same touchpoints always produce the same split — a report you cannot reproduce is a report you cannot argue with. The funnel runs eight stages from impression to referral and NAMES the biggest drop-off rather than averaging it away, and every figure is labelled an estimate derived only from counts you supplied.",
+    limit:
+      "It attributes revenue you actually recorded. It cannot see the customer who saw your advert on Tuesday and walked into the shop on Saturday with no record in between, and it will not invent a touchpoint to make the model look complete.",
+    related: ["should-ai-send-your-customer-replies", "stop-a-campaign-losing-money", "what-does-an-ai-action-cost"],
+    faq: [
+      { q: "What is wrong with last-click attribution?", a: "It credits whoever was nearest the purchase. Brand search usually wins, which makes a business cut the channels that created the demand brand search captured." },
+      { q: "What is a U-shaped model?", a: "Position-based: the first touch that created the discovery and the last touch that closed it both get a substantial share, and the middle touches split an assisting share. It credits the two moments that are hardest to replace." },
+      { q: "Will two runs give me the same answer?", a: "Yes. There is no wall-clock and no randomness in the maths, so identical inputs give an identical split. If a figure changes, your data changed." },
+      { q: "Does it guess at offline sales?", a: "No. It works from counts you supplied and labels every derived figure an estimate. A sale with no recorded touchpoint is reported as unattributed rather than assigned to a channel for neatness." },
+    ],
+    body: `Ask most analytics tools which channel made a sale and they will tell you the last thing the buyer clicked. It is the cheapest answer to compute and it is wrong in a specific, expensive direction.
+
+Last-click credits whoever was standing nearest the till. For almost every small business that is **brand search** — somebody typing your name into Google because of something else they saw. So brand search looks like your best channel, you move budget into it, and you defund the thing that made people search for you.
+
+## Two different questions, and they need different maths
+
+**Where is the money leaking?** That is the funnel: eight stages from impression through attention, engagement, click, lead, purchase, repeat purchase and referral. The useful output is not the overall conversion rate — it is **which single step loses the most**, named rather than averaged into a percentage that hides it.
+
+A business with great reach and a dead landing page has the same blended conversion rate as one with weak reach and a great page. They need opposite fixes.
+
+**Who deserves the credit?** That is attribution, and it uses a **U-shaped position-based split**: the first touch that created the discovery and the last touch that closed it each take a substantial share, with the middle touches splitting an assisting share.
+
+That is a judgement, and it is worth saying why it is defensible. The two hardest things to replace in a purchase are the moment somebody first heard of you and the moment they decided. The middle is real but more substitutable. Crediting all three equally overstates the middle; crediting only the last pretends the first never happened.
+
+## Reproducible, which is rarer than it should be
+
+There is no wall-clock and no randomness anywhere in this maths. The same touchpoints always produce the same split.
+
+That sounds like a technical footnote. It is the difference between a report you can act on and one you cannot: if a figure moves, you know your data moved, not the model. A number that quietly drifts between two readings of the same week cannot be used to make a decision, and it cannot be defended to anybody who asks where it came from.
+
+## What it refuses to do
+
+It works from the counts you supply, and it labels every derived figure an **estimate** rather than a measurement.
+
+A sale with no recorded touchpoint is reported as **unattributed**. It is not sprinkled across channels in proportion so the pie adds to 100%. That tidy pie is the most common lie in marketing reporting: it takes the sales you cannot explain and distributes them to the channels you can, which flatters whatever you already spend most on.
+
+If a quarter of your revenue is unattributed, the honest report says so — and then the useful action is to fix the tracking, not to admire a chart.
+
+## What to do with the answer
+
+Pair it with the money. The funnel tells you which step to fix; [the campaign guardrail tells you what you can afford to spend acquiring the next customer](/features/stop-a-campaign-losing-money), computed from your own contribution rather than a benchmark.
+
+## The question to ask any analytics vendor
+
+**Run it twice on the same data. Do I get the same number?**
+
+If the answer involves sampling, modelled conversions or a figure that moves when nothing moved, you are being sold a story with error bars nobody will show you.`,
+  },
+  // ──────────────────────────────── WHAT GETS PUBLISHED, AND WHAT DOES NOT ──
+  {
+    slug: "publish-content-without-inventing-statistics",
+    engineId: "content-engine",
+    title: "How do you publish AI content without inventing statistics?",
+    description:
+      "AI writes a convincing statistic and a plausible citation with equal confidence. What an evidence classifier blocks, and what it lets through.",
+    category: "Content",
+    keywords: ["ai content hallucination", "ai invented statistics", "ai content fact checking", "regulated industry ai content", "ai citations fake"],
+    proof:
+      "Every factual claim in a brief runs through an evidence classifier, and in a regulated context a claim that is AI-inferred or carries no source is BLOCKED from publishing and routed to source validation rather than published with a hedge. 26 output types are supported and not one of them will fabricate a statistic, a citation, a testimonial or a review — the engine is pure and deterministic, with no wall-clock and no randomness, so the same brief always produces the same plan.",
+    limit:
+      "It cannot verify a claim you have no source for. It can only refuse to publish it, which means the work it hands back is sometimes shorter and more boring than the version a less careful tool would have written for you.",
+    related: ["why-your-business-is-invisible-to-ai", "what-a-website-audit-actually-checks", "research-a-competitor-without-knocking-copy"],
+    faq: [
+      { q: "Why does AI invent statistics at all?", a: "Because a language model produces the most plausible next words, and a sentence of the shape \"N% of small businesses report X\" is extremely plausible text. It is generated with exactly the same confidence as a true sentence, which is why it survives a read-through." },
+      { q: "What does the classifier actually do?", a: "It sorts each claim by what kind of evidence stands behind it — sourced, inferred, or unverified. What happens next depends on the risk of the context, and in a regulated one an unsourced claim does not publish." },
+      { q: "Can I override the block?", a: "You can supply the source. That is the override, and it is the only one, because an override button that bypasses evidence is just a slower way of publishing the same invented figure." },
+      { q: "Does it write the whole article?", a: "It plans briefs across 26 output types with the brand voice, audience, funnel stage, market, claims policy and approval gates as inputs. The writing runs through the same gateway as everything else, with its claims checked on the way out." },
+    ],
+    body: `Ask any AI tool to write about your industry and you will get a statistic. It will be formatted correctly, attributed to a plausible organisation, and frequently invented.
+
+This is not a bug that will be fixed by a better model. A language model generates the most plausible continuation of your text, and a sentence of the shape "N% of small businesses report X" is enormously plausible — which is why it is the single commonest thing these tools invent. It arrives with identical confidence to a true sentence, which is precisely why it survives your read-through.
+
+## Why this is a business risk and not a writing problem
+
+If you are a tradesperson, an invented statistic is embarrassing. If you are in finance, health, law, insurance or anything else with a regulator, it is a compliance incident — and the regulator does not care which tool typed it.
+
+A fabricated citation is worse than a fabricated number, because it is a false attribution to a real organisation.
+
+## The evidence classifier
+
+Every factual claim in a brief is classified by the evidence behind it: **sourced**, **AI-inferred**, or **unverified**.
+
+What happens next depends on the risk of the context. In a regulated one, a claim that is inferred or unsourced is **blocked from publishing** and routed to source validation.
+
+Blocked, not hedged. The tempting middle path is to soften it — "many businesses report" — and that is worse than either option, because it keeps the unsupported claim while removing the one word that would let a reader check it. You end up with prose that is unfalsifiable rather than true.
+
+## What it will not produce, ever
+
+Not a statistic it cannot source. Not a citation. Not a testimonial. Not a review. Not a metric.
+
+Those five are listed in the engine's own doctrine because they are the five fabrications that do real damage. An invented testimonial is a fake review, which is a consumer-protection matter in most markets this platform operates in — and it is not a feature anybody should be able to switch on.
+
+## 26 output types, one control surface
+
+The brief is where the useful work happens, and it takes the things that actually determine whether content lands: brand voice, audience, funnel stage, country and language, claims policy, legal disclaimers, approval gates.
+
+26 output types — from SEO and answer-engine articles to landing pages, comparison pages, case studies and social posts — all planned from that one surface rather than from 26 separate prompts you have to remember to write consistently.
+
+The planning is **pure and deterministic**: no wall-clock, no randomness. The same brief produces the same plan, which is what makes an approval meaningful. Approving something that would come out differently next time is not approval.
+
+## What this costs you
+
+Honesty has a cost here and it is worth naming. The output is sometimes shorter, flatter and less quotable than what a careless tool would hand you, because the three best sentences were the ones with invented numbers in them.
+
+What you get instead is content you can publish in a regulated industry, and a page that still says something specific — which is also [the only kind of page that ranks or gets cited by an AI assistant](/features/why-your-business-is-invisible-to-ai) now that the thin, statistic-stuffed version is exactly what the policies demote.
+
+## The question to ask
+
+Give any AI content tool a prompt in your own field and ask it for three statistics with sources. Then **check them**.
+
+The results will tell you more than any vendor comparison. We would rather you ran that test here and found the gap where a number should be.`,
+  },
+  {
+    slug: "research-a-competitor-without-knocking-copy",
+    engineId: "competitor-warroom",
+    title: "How do you research a competitor without writing knocking copy?",
+    description:
+      "Research naming a rival's weakness is easy to turn into advertising that attacks them, which usually loses. What to do with it instead.",
+    category: "Market intelligence",
+    keywords: ["competitor analysis small business", "competitor weakness analysis", "comparative advertising rules", "battlecard sales", "competitor monitoring tool"],
+    proof:
+      "The engine refuses knocking copy: it differentiates on your own genuine strengths and will not fabricate a competitor's reviews, metrics or complaints. Every visibility and weakness figure is a labelled ESTIMATE derived from signals you supplied, and the board is seeded off the competitor's name so the same input always returns the same board — a number cannot drift between two readings and then be quoted as a trend.",
+    limit:
+      "It is not surveillance and it is not a data feed. It reads the signals you give it and the public surfaces it can see, and it will tell you a figure is an estimate rather than dressing a guess up as a measurement of somebody else's business.",
+    related: ["publish-content-without-inventing-statistics", "get-found-in-your-own-town", "which-companies-are-ready-to-buy-from-you"],
+    faq: [
+      { q: "Can I not just say my competitor is worse?", a: "In the UK and EU, comparative advertising is lawful only under conditions — the comparison must be objective, verifiable and not misleading. \"Their support is terrible\" is an opinion presented as fact, and it is the version that attracts a complaint." },
+      { q: "So what do I do with a weakness I have found?", a: "Answer it on your own page without naming them. If their weakness is slow response times, publish your actual response time. The buyer makes the comparison, which is far more persuasive than you making it." },
+      { q: "Does it invent competitor data?", a: "No. Every score is labelled an estimate derived from signals you supplied, and the engine never fabricates a competitor's reviews, metrics or complaints." },
+      { q: "Is the same competitor scored the same way twice?", a: "Yes. Scores are seeded off the competitor name and the inputs, so two readings of the same situation agree. A figure that moved means your inputs moved." },
+    ],
+    body: `Competitive research produces a tempting artefact: a list of things your competitor is bad at. The obvious next step is to say so in your advertising.
+
+That step is where it goes wrong, for two separate reasons.
+
+## The legal reason
+
+Comparative advertising is lawful in the UK and EU, but only under conditions: the comparison must be **objective, verifiable** and not misleading, and it must compare like with like.
+
+"Their support is terrible" meets none of those. It is an opinion stated as fact about a named business, and the remedy available to them is not a marketing problem.
+
+## The commercial reason, which matters more
+
+Attacking a competitor by name does something no brief anticipates: it tells your prospect that your competitor is the reference point in the category. You have spent your budget making them the benchmark and yourself the challenger.
+
+Buyers also read it as weakness. A business confident in its own offer describes its own offer.
+
+## What the research is actually for
+
+Three things, none of which require naming anybody in public:
+
+**1. Your own page.** If their weakness is response time, publish yours as a number. If it is hidden pricing, publish your prices. The buyer performs the comparison themselves, and a comparison a buyer makes is worth more than one you assert.
+
+**2. A sales battlecard.** Internal, for the conversation where a prospect raises them directly. The right answer there is factual and unemotional — what you do differently and who each option suits — not a list of their failings.
+
+**3. Positioning.** Sometimes the finding is that they own a segment you were about to fight them in, and the right move is to go somewhere else. That is the most valuable output and the one nobody wants.
+
+## What the engine does and does not claim
+
+It watches a competitor across search visibility, AI answers, social and sentiment, and scores exploitable weaknesses from the complaints and signals you supply.
+
+Every one of those numbers is a **labelled estimate**. It is not a measurement of their business, because nobody outside their business can measure it, and a tool that reports an estimate as a fact about a third party is inviting you to repeat it in public.
+
+It is also **reproducible**: the board is seeded off the competitor's name and your inputs, so the same situation produces the same board. That stops the worst failure mode of competitive dashboards, which is noise read as momentum — a number that wobbles between readings and gets reported upward as "they are gaining".
+
+And it will not fabricate. No invented reviews, no invented metrics, no invented complaints.
+
+## The recommendation it gives
+
+The strongest **ethical** exploitation play — which in practice is almost always "publish the thing they are vague about, in specifics, on your own site, and get found for it". That is [a local search question](/features/get-found-in-your-own-town) far more often than it is an advertising one.
+
+## The question to ask
+
+When a competitive tool hands you a weakness, ask: **could I say this in public and defend it with evidence I hold?**
+
+If not, it belongs in a battlecard and on your own product page — not in a campaign.`,
+  },
+  // ───────────────────────────────────── WHO TO APPROACH, AND WHEN IT BURNS ──
+  {
+    slug: "which-companies-are-ready-to-buy-from-you",
+    engineId: "intent-radar",
+    title: "Which companies are ready to buy from you right now?",
+    description:
+      "Intent tools promise to tell you who is in-market. What the ten signals are, and why a radar that invents one is worse than no radar.",
+    category: "Market intelligence",
+    keywords: ["b2b buying intent signals", "which companies are in market", "intent data small business", "sales timing signals", "b2b prospecting intent"],
+    proof:
+      "Exactly ten B2B buying-intent signal types — topic, search, hiring, funding, expansion, competitor, technology change, tender or procurement, news trigger and website change — and a signal you did not supply is NEVER invented to complete the picture. Every score is a labelled estimate and the radar is reproducible from its inputs, so the \"why now\" can be checked against the evidence that produced it.",
+    limit:
+      "Intent is not a promise. A company hiring for a role adjacent to your product is a better moment to call than a random Tuesday, and that is the whole claim — it cannot tell you they have budget approved, and any vendor saying otherwise is selling you a feeling.",
+    related: ["research-a-competitor-without-knocking-copy", "get-found-in-your-own-town", "should-ai-send-your-customer-replies"],
+    faq: [
+      { q: "What counts as a buying signal?", a: "Ten types: a topic they are suddenly reading about, search behaviour, hiring, funding, expansion, a competitor move, a technology change, a tender or procurement notice, a news trigger, and a change to their own website." },
+      { q: "Where does the data come from?", a: "The signals you supply, plus public surfaces. This is the question to ask every intent vendor, because the honest answer is narrower than the marketing and the dishonest answer is a black box." },
+      { q: "Will it invent a signal to fill the picture?", a: "No. A signal you did not supply is never invented. A company with two signals scores on two signals, and the gap is visible rather than quietly filled." },
+      { q: "How is this different from a lead list?", a: "A list tells you who exists. This ranks when to approach them and gives you the sentence explaining why now — which is the difference between a cold call and a relevant one." },
+    ],
+    body: `Every B2B business eventually buys a list, works through it, and concludes that outbound does not work. Usually the list was fine. The timing was random.
+
+A company that will happily buy your product in March is not interested in February, and nothing about the company record tells you which month you are in.
+
+## What a buying signal is
+
+Something that changed. Ten types, and these are exactly the ten this engine reads:
+
+| Signal | What it suggests |
+|---|---|
+| **Topic** | They are suddenly reading about your category |
+| **Search** | Search behaviour around the problem you solve |
+| **Hiring** | A role that implies the work you do |
+| **Funding** | Money that has to be spent on something |
+| **Expansion** | A new site, market or line |
+| **Competitor** | A rival of theirs moved, and they noticed |
+| **Technology change** | They are replacing part of the stack |
+| **Tender / procurement** | They have published that they are buying |
+| **News trigger** | Something happened that creates the need |
+| **Website change** | Their own site now says something new |
+
+Hiring is the most underrated of these for a small supplier. A firm advertising for someone to own a function has just admitted the function matters and is currently unowned. That is a conversation, not a cold call.
+
+A published tender is the strongest and the most ignored, because it requires reading unglamorous places where buying intentions are legally required to be announced.
+
+## What a score can honestly mean
+
+The radar returns a score, a **"why now"** and an offer angle. The score is a **labelled estimate**, and the thing worth checking is that the "why now" names the evidence underneath it.
+
+That is the test to apply to any intent product: **can you see what the score was computed from?** If the answer is a number with no traceable evidence, you cannot tell a real signal from a model's enthusiasm, and you will spend your week on the enthusiasm.
+
+## The refusal that matters
+
+**A signal you did not supply is never invented.**
+
+This sounds obvious until you consider the commercial pressure on an intent product. A radar with two signals on it looks thin, and the fix that no customer can detect is to infer the other eight — a plausible hiring signal, a plausible technology change. The output looks like a complete picture of a company genuinely in-market.
+
+Here, a company with two signals scores on two signals. The picture is visibly incomplete when it is incomplete, because the alternative is a confident dashboard sending you to businesses with no reason to answer.
+
+It is also **reproducible** from its inputs, so the same evidence gives the same score. An intent score that drifts is not evidence of movement in the market.
+
+## Then what
+
+Intent tells you **when**. You still need the right person and a lawful route to them — which is a separate problem with its own rules, and in the UK a corporate subscriber and an individual one are not the same question.
+
+Pair it with [competitive research that stays out of knocking copy](/features/research-a-competitor-without-knocking-copy), because the strongest moment to approach somebody is often just after a competitor of theirs has moved.
+
+## The question to ask any intent vendor
+
+**Show me the evidence behind one score, and tell me which parts were inferred.**
+
+A vendor who cannot separate those two is selling you a number they cannot defend either.`,
+  },
+  {
+    slug: "handle-a-wave-of-bad-reviews",
+    engineId: "crisis-command",
+    title: "What do you do when bad reviews all arrive at once?",
+    description:
+      "A reputation problem is a timing problem: the first hour decides the next month. The four escalation levels, and why nothing auto-publishes.",
+    category: "Reputation",
+    keywords: ["bad review wave", "small business reputation crisis", "how to respond to negative reviews", "reputation monitoring", "crisis response plan small business"],
+    proof:
+      "13 early-warning signals, 10 weighted severity factors and a 4-level escalation ladder — Monitor, Respond, Coordinate, Executive — and nothing is auto-published: the higher levels require a human to approve the words before they leave. Every severity and velocity figure is a labelled estimate rather than a measurement, the engine never fabricates a mention or a review to populate the picture, and any outbound marketing send still obeys consent and the cap of 5 touches in 7 days.",
+    limit:
+      "It cannot fix the thing that caused the crisis, and it will not write you out of a problem that is real. If the complaints are accurate, the only response that works is changing what you do and saying so — no tool substitutes for that.",
+    related: ["ask-customers-for-reviews-properly", "should-ai-send-your-customer-replies", "research-a-competitor-without-knocking-copy"],
+    faq: [
+      { q: "What are the four levels for?", a: "Monitor, Respond, Coordinate, Executive. They separate \"watch this\" from \"answer it\", \"get several people on it\" and \"the owner speaks\". Most damage is done by treating a level-one as a level-four, or the reverse." },
+      { q: "Will it post a response for me?", a: "No. Nothing is auto-published. Higher levels explicitly require human approval before any words leave, because an automated apology for something you have not investigated makes the problem permanent." },
+      { q: "What are the early signals?", a: "Thirteen, including a sudden shift in sentiment and unusual mention volume. The point of watching for them is that the cheapest hour to act in is the first one." },
+      { q: "Does it measure how bad it is?", a: "It estimates, across ten weighted factors, and says so. A severity score presented as a measurement of public opinion would be a fabrication; what it gives you is a consistent way to rank today against last week." },
+    ],
+    body: `Reputation damage is not usually caused by the complaint. It is caused by the response, and more often by the delay before the response.
+
+Two failure modes, equally common. A business sees one angry review and writes a defensive paragraph that gets screenshotted. Or a business sees fourteen in a day, panics, says nothing for a week, and the silence becomes the story.
+
+## The ladder exists so you can tell those apart
+
+Four levels:
+
+**Monitor** — note it, watch whether it moves. One unhappy customer is not a crisis and treating it like one creates one.
+
+**Respond** — a real reply from a real person, usually in public, usually short, usually offering to take it elsewhere.
+
+**Coordinate** — more than one person is needed: whoever handles the customer, whoever fixes the cause, whoever speaks publicly. This is the level businesses skip, and skipping it is how three people give three different answers.
+
+**Executive** — the owner's name on it. Rare, and cheapened by overuse.
+
+Each level hands back the human workflow for that level. Not a template to send — the steps, in order, for a person to run.
+
+## Thirteen signals, because the first hour is the cheap one
+
+The engine watches for thirteen early-warning signals, including a sudden shift in sentiment and unusual mention volume.
+
+The reason to watch at all is arithmetic: a problem addressed in the first hour involves one unhappy customer and a reply. The same problem on day four involves the people who found the first complaint, the people who found the silence, and your search results for the next six months.
+
+## Ten factors, and they are estimates
+
+Severity is scored across ten weighted factors, and every number is labelled an **estimate**.
+
+That label is not modesty. A severity score is a guess about how much public attention something will attract, and no engine measures public opinion. What a consistent estimate gives you is comparability — today against last week, this complaint against that one — which is what you need in order to choose a level rather than react to volume.
+
+It will never fabricate a mention, a metric, a review or a testimonial to populate the picture.
+
+## Nothing auto-publishes, and this is the important one
+
+Every instinct in a crisis is to respond fast, so an automated response feels like exactly the right feature. It is the worst possible one.
+
+An apology published before you have investigated is an **admission** you cannot withdraw. A denial published before you have investigated is the clip that gets replayed when it turns out to be true. Both are permanent, and both are the kind of thing a machine produces confidently in eleven seconds.
+
+So higher levels **require human approval** before any words leave. The engine's job is to get the right person looking at the right thing within the hour, with the facts assembled and a draft to argue with.
+
+## And it will not write you out of a real problem
+
+If the complaints are accurate, the only response that works is to change what you do and say that you have.
+
+Review software cannot help with that, and any vendor implying otherwise is selling reputation management as a substitute for operations. What helps afterwards is the slow, legitimate work: [asking satisfied customers for reviews properly](/features/ask-customers-for-reviews-properly), without incentives, without gating, so the recent reviews are real.
+
+## The question to ask
+
+Before you buy a reputation tool, ask: **does it publish anything on my behalf?**
+
+If it does, that is the feature to switch off first.`,
+  },
+  // ───────────────────────────────────── WHAT YOU ARE ALLOWED TO SAY AND USE ──
+  {
+    slug: "can-you-say-that-in-an-advert",
+    engineId: "compliance",
+    title: "Can you legally say that in an advert?",
+    description:
+      "Best in the area, guaranteed results, clinically proven — which marketing claims need evidence you can produce, and what happens to the ones that do not.",
+    category: "Claims and compliance",
+    keywords: ["advertising claims rules uk", "can i say best in my advert", "unsubstantiated claims advertising", "ai content disclosure", "regulated industry marketing claims"],
+    proof:
+      "An unsubstantiated claim is never publishable here: every claim is classified into 1 of 4 states — verified, confirmed by you, inferred and pending, or prohibited — and a prohibited superlative does not reach an advert. AI-generated assets ALWAYS carry a disclosure and a C2PA-style provenance record with creator consent attached, because a synthetic image passed off as a photograph is a disclosure failure before it is a creative choice.",
+    limit:
+      "It is not legal advice and it cannot substantiate a claim for you. If you say your product is the fastest, somebody has to hold the evidence — the engine's job is to stop that sentence being published while nobody does.",
+    related: ["publish-content-without-inventing-statistics", "allowed-to-use-that-photo-in-an-ad", "research-a-competitor-without-knocking-copy"],
+    faq: [
+      { q: "Can I say I am the best in my area?", a: "Only with evidence that stands up — a superlative is a factual claim about every competitor in that area. Without substantiation it is classified as prohibited and does not publish." },
+      { q: "What about \"guaranteed\"?", a: "A guarantee is a contractual promise, not an adjective. If you mean a refund policy, say the policy. The engine treats an unbacked guarantee as prohibited for the same reason it treats a superlative that way." },
+      { q: "Do I have to say an image was AI-generated?", a: "Here, yes — AI assets always carry a disclosure, with a provenance record. Platforms and regulators are converging on this, and retrofitting labels across a back catalogue is far more expensive than labelling as you go." },
+      { q: "What are the regulated categories?", a: "Health, finance and the other categories where an ordinary claim becomes a regulated one. A claim in those contexts that is inferred or unsourced is routed to validation rather than hedged into something unfalsifiable." },
+    ],
+    body: `Most small-business advertising breaks the rules by accident, in the same four words: **best**, **guaranteed**, **number one**, **proven**.
+
+They do not feel like claims. They feel like enthusiasm. They are claims, and the test applied to them is whether you can produce evidence — not whether you believed it when you wrote it.
+
+## The four states a claim can be in
+
+Every claim is classified, and the classification decides what can happen to it:
+
+**Verified** — evidence exists and is attached. Publishes.
+
+**Confirmed by you** — you have asserted it as the business owner and taken responsibility for it. Publishes, with your name against it. "We have been trading since 2009" belongs here: you know, and no external source is going to tell us.
+
+**Inferred and pending** — the model produced it and nothing stands behind it. Does not publish; goes to validation.
+
+**Prohibited** — an unsubstantiated superlative, a health claim nobody can make, a guarantee with no mechanism. Does not publish at all.
+
+The distinction between the third and fourth matters. "Pending" is a workflow: find the source, and it moves. "Prohibited" is a refusal.
+
+## Why a superlative is harder than it looks
+
+"Best plumber in Leeds" is a comparative claim about every plumber in Leeds. To substantiate it you need a basis — a measure, a source, a date — and that basis has to be the kind a regulator would accept.
+
+The practical alternative is almost always stronger anyway. "Best" is what everybody writes, so it carries no information. "We answer the phone within two rings between 7am and 7pm, and if we cannot come today we will tell you today" is specific, checkable, and far more persuasive — and it is the kind of sentence that gets you [found and cited by an AI assistant](/features/why-your-business-is-invisible-to-ai), which now reads for specifics rather than adjectives.
+
+## Synthetic content carries a label, always
+
+Any AI-generated asset gets a disclosure and a provenance record, with creator consent recorded.
+
+This is not us being cautious on your behalf. Disclosure requirements are tightening across platforms and jurisdictions, and the expensive version of this problem is discovering in two years that a back catalogue of unlabelled synthetic assets needs auditing. Labelling at the point of creation costs nothing; retrofitting it costs a project.
+
+## The regulated categories
+
+In health, finance and the other regulated contexts, the threshold moves. A sentence that is merely optimistic in one industry is a regulatory matter in another, and the engine blocks an inferred or unsourced claim in those contexts rather than softening it.
+
+Softening is the trap. "May help support" keeps the unsupported claim and removes the only word a reader could have checked.
+
+## What this does not do
+
+It is not legal advice, and it cannot substantiate a claim for you. It also cannot read your mind about what you can prove — if you hold the evidence, confirm the claim and it publishes with your name on it.
+
+What it removes is the specific failure of publishing a claim that nobody, anywhere, can back up — which is the one that generates the complaint.
+
+## The question to ask
+
+Take your current homepage and ask, sentence by sentence: **if somebody asked me to prove this, what would I send them?**
+
+Every sentence with no answer is one to rewrite as something specific. The pages that result are better marketing and lower risk, which is an unusual combination.`,
+  },
+  {
+    slug: "allowed-to-use-that-photo-in-an-ad",
+    engineId: "rights-guard",
+    title: "Are you allowed to use that photo in a paid advert?",
+    description:
+      "Organic permission is not paid permission, a stock licence is not a model release, and the 17 rights a campaign asset actually needs.",
+    category: "Claims and compliance",
+    keywords: ["can i use this photo in an ad", "model release paid advertising", "stock licence paid ads", "ugc rights permission", "image rights marketing"],
+    proof:
+      "17 separate rights are checked before an asset can run — among them source ownership, upload permission, music licence, model release, voice and face consent, location release, product trademark, territory, permitted platforms, PAID-AD rights as distinct from organic-only rights, modification rights, generative-AI rights and expiry — and publishing is BLOCKED whenever any right required for the intended use is missing. The engine never assumes consent.",
+    limit:
+      "It checks what you have told it and what the asset carries. It cannot find a release you never obtained, and it will not tell you a customer's photo is safe to use in a paid advert because they were happy for you to post it.",
+    related: ["can-you-say-that-in-an-advert", "make-an-ad-from-your-own-photo", "ask-customers-for-reviews-properly"],
+    faq: [
+      { q: "A customer sent me a photo and said I could post it. Can I run it as an advert?", a: "Usually not without asking again. Permission to post organically is not permission to use somebody's likeness in paid advertising, and those are two separate rights here for exactly that reason." },
+      { q: "I bought a stock image. Am I covered?", a: "For the image, within the licence. A stock licence is not a model release, rarely covers unlimited paid social, and often excludes territories. Those are separate fields because they fail separately." },
+      { q: "What is a generative-AI right?", a: "Whether you are permitted to feed the asset to a model — to restyle, extend or animate it. Many licences and consents granted before 2023 say nothing about it, and silence is not permission." },
+      { q: "Why does expiry matter?", a: "Because an expired right looks identical to a valid one in your asset folder. A three-year model release that lapsed in March does not announce itself; the check does." },
+    ],
+    body: `There is a question every small business gets wrong at least once: **can I use this picture?**
+
+It feels like one question. It is seventeen, and they fail independently.
+
+## The ones that catch people
+
+**Organic permission is not paid permission.** A customer who is delighted for you to post their kitchen on Instagram has not agreed to appear in an advert you are paying to put in front of strangers. In most jurisdictions those are different permissions, and the second one needs asking for.
+
+**A stock licence is not a model release.** You licensed the photograph from the library. The person in it agreed to be photographed under terms you have never seen, which frequently exclude unlimited paid social, endorsement-shaped use, or certain territories.
+
+**Music is its own problem, twice.** The recording and the composition are separate rights, and "it was fine on the platform's own library" means fine on that platform only.
+
+**A territory is a right.** A licence for the UK is not a licence for a campaign you let run globally because the platform defaulted to it.
+
+**An expired right looks exactly like a valid one.** This is the quiet one. Nothing in your folder changes when a three-year release lapses.
+
+**Generative-AI rights usually do not exist in older paperwork.** If you want to restyle or animate an asset, somebody has to have agreed to that. Consents written before 2023 are silent, and silence is not permission.
+
+## What the check actually does
+
+Seventeen fields, and the rule is one sentence: **publishing is blocked whenever any right required for the intended use is missing.**
+
+The phrase doing the work is *for the intended use*. A photo can be perfectly fine for your website and blocked for a paid advert in another country, from the same record, because the use changed and the requirements changed with it.
+
+And the default is refusal, not assumption. The engine never assumes consent — an unknown field is treated as absent, because the alternative is a system that lets everything through until somebody complains.
+
+## Why a blocker rather than a warning
+
+A warning is read once, by somebody in a hurry, at the moment they most want to publish. Every tool that has ever shown a rights warning has watched it be clicked past.
+
+The cost asymmetry is the argument. Blocking costs you a delay and an email asking for permission. Publishing without the right costs you a takedown at best, and at worst a claim from somebody whose face you used to sell something.
+
+## The practical habit
+
+Ask for paid-advert permission at the moment somebody sends you the photo, in writing, with a time limit, and record it. It takes one message, and it is the difference between an asset library you can advertise with and a folder you have to re-clear every time.
+
+If you are generating creative from your own material, [the ad canvas works from a photo you took](/features/make-an-ad-from-your-own-photo) — which is the one case where the rights question is simple.
+
+## The question to ask
+
+Before any asset runs as a paid advert: **who is in it, who shot it, what did they agree to, for how long, and where?**
+
+If any of those five has no answer, you have found the one to chase.`,
+  },
+  // ─────────────────────────────────────── LISTENING, AND COMING BACK AGAIN ──
+  {
+    slug: "what-your-customers-are-telling-you",
+    engineId: "customer-voice",
+    title: "What are your customers actually telling you?",
+    description:
+      "Reviews, surveys, support messages and sales calls say the same three things, and nobody reads them. How clustering differs from inventing.",
+    category: "Customer conversations",
+    keywords: ["voice of customer small business", "analyse customer feedback", "review analysis tool", "customer complaints themes", "feedback to product decisions"],
+    proof:
+      "12 accepted sources of customer voice are clustered, and the engine NEVER fabricates feedback, a testimonial or a review — it clusters only the items you supplied and labels every output an estimate. It is deterministic with no wall-clock and no randomness, so the same feedback always produces the same themes, and a validated theme is bridged into a requirement with acceptance criteria rather than left as a word cloud.",
+    limit:
+      "It can only read what you collect. If your feedback is twelve reviews and no survey, the themes are drawn from twelve reviews, and it will say so rather than generalising from them to your whole customer base.",
+    related: ["ask-customers-for-reviews-properly", "handle-a-wave-of-bad-reviews", "should-ai-send-your-customer-replies"],
+    faq: [
+      { q: "What counts as customer voice?", a: "Twelve sources, including reviews and surveys — the point of taking all twelve is that the same complaint arrives as a review, a support ticket and a sentence in a sales call, and nobody notices it is one problem." },
+      { q: "Will it invent a theme that is not there?", a: "No. It clusters items you supplied and nothing else. It never fabricates feedback, a testimonial or a review, and every output is labelled an estimate rather than a measurement of your customer base." },
+      { q: "Is the same feedback summarised the same way twice?", a: "Yes. There is no wall-clock and no randomness, so identical input gives identical themes. A summary that reshuffles itself between readings cannot be taken to a decision." },
+      { q: "What do I do with a theme?", a: "A validated one becomes a requirement: the problem, the change, the acceptance criteria and a priority. A theme with no action attached is a word cloud, which is why so much feedback analysis changes nothing." },
+    ],
+    body: `Every business already has the answer to its biggest marketing problem sitting in four places, and none of them get read: reviews, survey replies, support messages, and whatever the person who answers the phone remembers.
+
+The reason is not laziness. It is that reading it properly is hours of work and the output is usually a feeling.
+
+## The thing that makes it worth doing
+
+One complaint arrives in four costumes. A customer writes a review saying "took ages to get a date". Another emails asking whether you are still trading. A third tells you on the phone they nearly went elsewhere. A survey comes back with a three out of five and no comment.
+
+Those are one problem — **you are slow to confirm a booking** — and it is invisible in all four places separately. That is the entire value of clustering: not summarising a review, but noticing that four channels are describing the same thing.
+
+So twelve sources are accepted, and they are clustered together rather than reported per channel.
+
+## What it will not do, and this is the whole design
+
+**It never fabricates feedback, a testimonial or a review.**
+
+That sentence is in the engine's own doctrine, and it is there because this is the single most tempting place in a marketing platform to invent. A feedback summary is unverifiable by construction: nobody is going to cross-check a theme against the raw items. A tool could produce three plausible, well-written themes from almost nothing, and they would be acted on.
+
+So it clusters **only the items you supplied**, and every output is labelled an **estimate** — because a theme drawn from twelve reviews is a reading of twelve reviews, not a measurement of your customers.
+
+If you give it thin input, you get thin output that says it is thin. That is the honest failure mode, and it points at the real fix: collect more feedback.
+
+## Reproducible, which decides whether anybody trusts it
+
+No wall-clock, no randomness. The same feedback produces the same themes.
+
+A summary that comes out differently on Tuesday cannot be taken into a decision, because the first question anybody asks is "is that real, or is that the tool?" — and if the answer is ever "the tool", nobody asks again.
+
+## From theme to something that changes
+
+The useful end of this is the bridge: a validated theme becomes a requirement with **the problem, the proposed change, acceptance criteria and a priority**.
+
+Acceptance criteria are the part that makes it real. "Improve booking speed" is a theme. "A customer who enquires before 4pm gets a confirmed date the same working day" is something you can build, test and then put in your marketing — because it is exactly the kind of specific sentence that outperforms an adjective.
+
+And it closes a loop: the complaint that produced the change becomes the claim you can [substantiate in an advert](/features/can-you-say-that-in-an-advert), which is a far better position than inventing a benefit nobody asked for.
+
+## The question to ask
+
+Look at your last twenty pieces of feedback and ask: **what is the one thing being said in more than one place?**
+
+If a tool cannot show you the items underneath a theme it reports, it is not reading your feedback. It is writing about it.`,
+  },
+  {
+    slug: "do-loyalty-points-actually-work",
+    engineId: "loyalty",
+    title: "Do loyalty points actually bring customers back?",
+    description:
+      "Most loyalty schemes discount customers who were coming anyway. What a k-factor honestly estimates, and what a reward is allowed to cost.",
+    category: "Retention",
+    keywords: ["small business loyalty scheme", "do loyalty programs work", "referral programme small business", "k factor viral growth", "loyalty points cost"],
+    proof:
+      "Every projected cycle, k-factor and growth figure is a labelled ESTIMATE and never a guarantee, and no metric is fabricated. Referral invites require the recipient's consent and honour a hard cap of 5 touches in 7 days, enforced in the engine — so a referral scheme cannot become an unsolicited mailing to somebody's friends, which is both the fastest way to burn a list and, for an individual subscriber, unlawful.",
+    limit:
+      "It cannot make a weak offer worth recommending. A referral scheme multiplies whatever your customers already think of you, and if that is lukewarm, a k-factor projection will quietly tell you so rather than fix it.",
+    related: ["what-your-customers-are-telling-you", "ask-customers-for-reviews-properly", "how-much-to-pay-an-affiliate"],
+    faq: [
+      { q: "What is a k-factor?", a: "The average number of new customers each existing customer brings. Above 1 and the loop grows by itself; below 1 it decays and needs topping up from marketing. Almost every real small-business scheme is below 1, and knowing the number is what stops you budgeting as if it were not." },
+      { q: "Will it guarantee a growth rate?", a: "No. Every projection is labelled an estimate, because it is arithmetic on your assumptions. A vendor guaranteeing viral growth is selling you a spreadsheet with confidence." },
+      { q: "Can I invite my customers' contacts?", a: "Only with the recipient's consent, and inside the cap of five touches in seven days. A referral scheme that mails strangers is a spam complaint against the shared sending domain, which affects every other business sending through it." },
+      { q: "How do I know what a reward can cost?", a: "The same contribution arithmetic that sets an affiliate ceiling: what is left after variable cost and the margin you protect. A reward above that is a discount on sales you were going to make." },
+    ],
+    body: `The uncomfortable truth about most loyalty schemes is that they pay your best customers to do what they were already doing.
+
+Ten per cent off for the regular who comes every fortnight is not retention. It is a ten per cent price cut on your most reliable revenue, dressed as a growth initiative.
+
+## The two things a scheme can actually do
+
+**1. Change behaviour at the margin.** Someone who would have come every six weeks comes every four. That is real, it is measurable, and it is worth paying for.
+
+**2. Buy a recommendation.** A referral is worth more than a repeat purchase, because it arrives with trust attached that no advertising can buy.
+
+Everything else is a discount with a nicer name.
+
+## The k-factor, and why the honest number is deflating
+
+The k-factor is the average number of new customers each existing one brings. Above 1, the loop compounds on its own. Below 1, it decays and needs refilling from marketing spend.
+
+Almost every real small-business scheme sits well below 1. That is not a failure — a k-factor of 0.3 is a third of your new customers arriving free, which is excellent. It just is not the self-sustaining machine the word "viral" implies.
+
+Every projection here is a **labelled estimate**, because it is arithmetic performed on your assumptions. Change the assumption and the projection changes. That is a model, not a forecast, and anyone presenting it as a forecast is counting on you not asking which assumption moved.
+
+## What a reward is allowed to cost
+
+The same arithmetic that decides [what you can afford to pay an affiliate](/features/how-much-to-pay-an-affiliate): revenue, minus variable cost, minus the margin you are protecting. What remains is what acquisition can spend.
+
+A reward above that ceiling is not growth. It is buying revenue at a loss, and it is particularly dangerous in a loyalty scheme because the cost is spread across thousands of small redemptions that never appear as a line item anybody reviews.
+
+## The consent rule, which is not optional
+
+A referral invite goes to somebody who has not asked to hear from you. So: **the recipient's consent is required, and a hard cap of five touches in seven days applies.**
+
+Two reasons, and the second is the one most vendors skip. The first is legal — in the UK and EU, an unsolicited marketing message to an individual subscriber is a PECR matter, and "my customer gave me their friend's email" is not consent from the friend.
+
+The second is shared infrastructure. Mail here leaves on a sending pool whose reputation is shared with every other business on it. One enthusiastic referral blast generating complaints degrades deliverability for businesses that did nothing wrong. That is why the cap is in the engine rather than in the terms.
+
+## And it cannot fix the offer
+
+A referral scheme multiplies what your customers already think of you. If the honest answer is "they are satisfied", no incentive structure turns that into advocacy — and the thing that does is usually sitting in [the feedback you already have](/features/what-your-customers-are-telling-you).
+
+## The question to ask
+
+Before launching any scheme: **would this customer have come back anyway?**
+
+If the answer is yes for most of your redemptions, you have built a discount. Point the money at the margin instead — the customers who were nearly lost, and the ones who would recommend you if asked.`,
   },
 ];
 

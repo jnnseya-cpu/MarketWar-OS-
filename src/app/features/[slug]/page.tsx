@@ -5,6 +5,7 @@ import { MarketingShell, H2, Prose } from "@/components/marketing";
 import { FEATURE_PAGES, featureBySlug } from "@/shared/feature-pages";
 import { siteUrl } from "@/shared/site";
 import { openGraphFor } from "@/shared/site";
+import { fitTitle, fitDescription } from "@/shared/seo-limits";
 
 export const dynamicParams = false;
 export function generateStaticParams() {
@@ -15,11 +16,26 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const p = featureBySlug(slug);
   if (!p) return { title: "Not found · MarketWar OS" };
+  // CLAMPED TO THE BOUNDS THIS PLATFORM'S OWN AUDIT SCORES, like the blog.
+  //
+  // THE DEFECT, AND IT IS THE THIRD TIME. `shared/seo-limits.ts` exists because
+  // §109 found eight marketing pages outside those bounds, and then the blog
+  // was found to be failing every article on the same two checks. The fix moved
+  // the numbers into one shared place and wired the BLOG renderer to them —
+  // and these pages, the ones whose whole job is selling, were never wired up.
+  // Driven against a real build: 16 of 22 descriptions over DESC_MAX and 2
+  // titles over TITLE_MAX, served exactly as written. Title is weight 10 and
+  // description weight 8 in our own crawler, so that is 18 of 100 points failed
+  // by the engine we charge customers to run.
+  //
+  // The copy is written inside the bounds as well, because `fitDescription`
+  // truncating a sentence reads as a scrape. The clamp is the floor under a
+  // future page whose author did not count, not a substitute for counting.
   return {
-    title: `${p.title} · MarketWar OS`,
-    description: p.description,
+    title: fitTitle(p.title, " · MarketWar OS"),
+    description: fitDescription(p.description),
     alternates: { canonical: `/features/${p.slug}` },
-    openGraph: openGraphFor({ title: p.title, description: p.description, path: `/features/${p.slug}`, type: "article" }),
+    openGraph: openGraphFor({ title: p.title, description: fitDescription(p.description), path: `/features/${p.slug}`, type: "article" }),
   };
 }
 

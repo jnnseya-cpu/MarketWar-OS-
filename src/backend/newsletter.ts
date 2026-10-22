@@ -291,11 +291,29 @@ export function buildIssue(input: {
   // complain. `keyless` pages are always fair game.
   const sellable = FEATURE_PAGES.filter((p) => !p.requiresCapability || live.includes(p.requiresCapability as CapabilityId));
 
-  // Deterministic rotation: the same week is always the same three.
-  const seed = Number.parseInt(hid(input.week).slice(0, 6), 16);
+  // DETERMINISTIC ROTATION THAT ACTUALLY ADVANCES.
+  //
+  // THE DEFECT, AND THE LIBRARY GROWING IS WHAT EXPOSED IT. The start index was
+  // `hash(week) % arr.length`, which is deterministic — the same week does give
+  // the same issue — but a hash modulo carries NO GUARANTEE THAT TWO
+  // CONSECUTIVE WEEKS DIFFER. Two different weeks can hash into the same
+  // remainder, and then subscribers get last week's email again. With 14 pages
+  // that pair happened to miss; the moment the library reached 22 it collided,
+  // and `tests/features.test.mjs` failed on exactly the property it was
+  // written to protect.
+  //
+  // The week ORDINAL fixes it: consecutive weeks advance by `take`, so the
+  // windows are adjacent and cannot repeat while there are more pages than
+  // slots. Still a pure function of the week, so a resend after a failure is
+  // the same email. The hash stays as the fallback for a week string that is
+  // not a date, where there is nothing monotonic to count.
+  const parsed = Date.parse(`${input.week}T00:00:00Z`);
+  const ordinal = Number.isFinite(parsed)
+    ? Math.floor(parsed / 604_800_000)
+    : Number.parseInt(hid(input.week).slice(0, 6), 16);
   const rotate = <T,>(arr: T[], take: number): T[] => {
     if (arr.length <= take) return [...arr];
-    const start = seed % arr.length;
+    const start = (((ordinal * take) % arr.length) + arr.length) % arr.length;
     return Array.from({ length: take }, (_, i) => arr[(start + i) % arr.length]);
   };
 
