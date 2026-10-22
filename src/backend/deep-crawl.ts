@@ -30,6 +30,7 @@ import { crawlSite, type CrawlReport } from "@/backend/crawler";
 import { parseRobots, robotsAllows, crawlDelayMs, OUR_AGENT, type RobotsFile } from "@/backend/robots";
 import { extractPage, mergeExtractions, type SiteExtraction } from "@/backend/site-extract";
 import { detectRenderGap } from "@/backend/render-gap";
+import { refuseResponseEncoding, REQUESTED_ENCODING } from "@/shared/hostile-encoding";
 
 const UA = `Mozilla/5.0 (compatible; ${OUR_AGENT}/1.0; +https://marketwaros.com)`;
 
@@ -58,7 +59,23 @@ async function get(url: string, timeoutMs: number): Promise<{ status: number; te
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, redirect: "follow", headers: { "User-Agent": UA, Accept: "text/html,text/plain,text/css,*/*" } });
+    const res = await fetch(url, {
+      signal: ctrl.signal, redirect: "follow",
+      headers: {
+        "User-Agent": UA, Accept: "text/html,text/plain,text/css,*/*",
+        // Stated rather than inherited — see `shared/hostile-encoding.ts`.
+        "Accept-Encoding": REQUESTED_ENCODING,
+      },
+    });
+    // THE SAME REFUSAL AS THE SINGLE-PAGE READER, for the same reason: this walks
+    // several pages of a site chosen by the caller, so it is the WIDER exposure
+    // of the two. A coding we never requested is not decoded; the page is
+    // reported as unread rather than as empty, which is what `return null` means
+    // to every caller here already.
+    if (refuseResponseEncoding(res.headers.get("content-encoding"))) {
+      try { await res.body?.cancel(); } catch { /* finished; nothing decoded either way */ }
+      return null;
+    }
     const text = await res.text();
     return { status: res.status, text: text.slice(0, 1_500_000), finalUrl: res.url || url };
   } catch { return null; } finally { clearTimeout(t); }
