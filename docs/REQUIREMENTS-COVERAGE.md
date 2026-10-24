@@ -11176,3 +11176,156 @@ fix for all of them**; this is the list for the next pass.
 here has a working CVE-2026-111497 payload, and none was written. What is proven is
 that attacker-supplied Brotli no longer reaches the decoder on those two paths,
 measured over a real socket.
+
+---
+
+## §168 — The production-readiness programme: discovery, and a CRITICAL that arrived in 48 hours
+
+**The brief.** An 11-prompt production-readiness programme, stack-agnostic:
+discover the real architecture first, remove duplicates, resolve dependencies,
+stabilise, debug, harden, deploy, audit every feature, test, strip dummy data,
+and gate. With an explicit rule: *inspect → diagnose → fix → test → retest →
+harden → verify*, and no cosmetic fixes or false readiness.
+
+### Discovery, measured from the tree rather than read from the docs
+
+```
+Next 15.5.25→15.5.28 · React 19.2.8 · TypeScript 5.7.2 · Node 22.x
+7 production dependencies: next, react, react-dom, firebase, firebase-admin,
+                           lucide-react, sharp
+Stripe: REST only — no SDK dependency at all
+Database/auth/storage: Firestore + Firebase Auth + Firebase Storage (admin SDK)
+Hosting: Vercel (vercel.json, 10 crons) · package manager: npm, ONE lock file
+192 API routes · 97 pages · 268 backend · 110 shared · 88 components
+29 test files · 44 drivers
+```
+
+**STATE.md's counts were stale** — it said 250 backend modules, 186 routes, 69
+pages; the tree says 268, 192, 97. A typed count that drifted, which is §151's
+defect class in the document whose job is to be current. Corrected there.
+
+### PROMPT 1 — the duplicate audit found almost nothing to delete, and that is the finding
+
+Each candidate was inspected rather than swept:
+
+| File | Verdict |
+| --- | --- |
+| `firebase.json` | **NOT a hosting duplicate.** It declares Firestore rules + indexes, Storage rules and RTDB rules — the rules-deployment config. Single-purpose, needed |
+| `database.rules.json` | **A deliberate deny-all lock on an UNUSED product.** RTDB is wired in client config and used nowhere; the file keeps it shut. Documented in `.env.example`, `GO-LIVE.md` and guarded by a test. Removing it would unlock what it exists to lock |
+| `apphosting.yaml` | The one real duplication — Firebase App Hosting config for a platform that is not live. **Left in place**: STATE.md §5 records it as the owner's decision, and the additive-only law requires him to name a capability before it is removed. Its header still says "Next.js 14", which is stale |
+| Env files | One: `.env.example`. No `.env*` committed |
+| Lock files | One: `package-lock.json`. No competing package manager |
+
+**One source of truth per domain already held.** The sweep this prompt asks for
+would have been deletion for the appearance of tidiness.
+
+### A NEW GATE: `check:orphans` — what nothing imports
+
+§144 removed eight fabricated fixtures that nothing imported; they accumulated
+because nothing could answer "is this file reachable?". Now something can: every
+static import, `export … from`, dynamic `import()` and `require()` across `src/`,
+`tests/` and `scripts/`, with the `@/` alias resolved, against Next's own entry-
+point conventions.
+
+**0 broken imports** — the tree is referentially clean. **3 orphans, 15 KB**, and
+none of them is junk:
+
+- `components/BviCard.tsx` — the Business Vitality Index panel from
+  `docs/ai-os/03 §2.1`. Its own header records that it once invented twelve
+  dimension scores in a field called `measured`, that it was de-fabricated, and
+  that "it was mounted nowhere, which is the only reason it never reached
+  anybody". Still mounted nowhere.
+- `frontend/storage-manager.ts` — a 15-export autosave and quota subsystem.
+- `frontend/locale.ts` — the worldwide-localisation foundation from the owner
+  directive of 2026-07-19, with "26 hardcoded-£ sites" waiting to migrate onto
+  `formatMoney()`.
+
+**Not deleted.** Three built capabilities with unfinished wiring is a different
+report from three dead files, and deleting a blueprint feature to make a tree
+look clean is precisely what the additive-only law forbids without the owner
+naming it. A broken import FAILS the gate; an orphan REPORTS, because a gate that
+fails on a judgement call gets switched off.
+
+### PROMPT 2 — A CRITICAL ADVISORY THAT DID NOT EXIST 48 HOURS EARLIER
+
+`npm audit --omit=dev` reported **1 critical**. `check:advisories` had passed on
+22 October. My first reading was that the gate had gone blind; **running it
+settled it — exit 1, correctly, naming the advisory.** The gate is not blind. The
+world changed:
+
+```
+CRITICAL  next  10.0.0 - 15.5.27
+  GHSA-2464-fhr4-w9xw  Unauthenticated REMOTE CODE EXECUTION in the Image
+                       Optimization API when SVG files are used
+  GHSA-p3m5-59mp-jv5r  HIGH — denial of service in App Router Server Actions
+  GHSA-4jqv-mc3x-m676  cache poisoning of SSG/ISR pages when self-hosted
+  GHSA-mcj8-r9mp-w47p  cache poisoning → cross-user content substitution
+```
+
+This is the exact scenario that file's own header describes: *"A dependency does
+not announce itself. It becomes vulnerable on a day when nobody touched this
+repository."* Two days, no commits, an unauthenticated RCE.
+
+**Fixed: `next` → `^15.5.28`**, one patch above the vulnerable ceiling, inside
+the same minor line — a patch, not a migration, which is the pattern §152
+established. Verified: `check:advisories` exit 0, with only the two documented
+unfixable moderates (`gaxios`, `uuid`) remaining on the record. Typecheck,
+layers, casts, indexes, 2,190 tests and `next build` all pass on 15.5.28.
+
+No duplicate packages in the production tree. All 7 production dependencies are
+referenced in code (`react-dom` in 2 files, the rest in 6–285).
+
+### A SECOND NEW GATE: `check:exposure` — what a stranger with no account can do
+
+§137 found `/api/email` answering an anonymous POST with a send result, under its
+own comment saying it must never be unauthenticated. The lesson was "inspect the
+thing that RUNS" — but nothing could then answer it for all 192 routes at once.
+
+Measured: **135 of 192 routes are guarded** by a credential, a rate limit, a
+scheduler secret or a webhook signature. **57 are open.** Of those 57:
+
+```
+write to the database   0
+send anything           0
+spend money             0
+```
+
+The 42 open POST routes are the deterministic engines — they compute an answer
+and return it. **The residual risk is unmetered COMPUTE, not data, money or
+mail**, and the gate says so in those words rather than implying more.
+
+**The first version of that gate cried wolf**, reporting `/api/gateway` and
+`/api/health/ai` as able to spend because they import a module that contains
+gateway calls. Both import exactly one symbol — `gatewayStatus`, a pure reader of
+which providers are configured. The hop now resolves the **symbols** a route
+imports and checks whether those specific exported functions spend. Recorded
+because `ads:verify` crying wolf nearly cost a real guard.
+
+Two result classes, deliberately: **FAIL** for an open route that writes, sends
+or spends — no defensible reading — and a **FLOOR** of 57 for open compute
+routes, held like the cast count, which only comes down. 4 mutants, all caught:
+an open route that writes, one that sends, one importing a real spender, and a
+58th open route appearing.
+
+### PROMPTS 5, 7, 10 — measured, not asserted
+
+- **Security headers**: HSTS (2 years, preload), `X-Content-Type-Options`,
+  `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`
+  (`geolocation=()`), and a CSP — all present in `next.config.mjs`.
+- **Dummy data**: 0 files with lorem ipsum, 0 `TODO`/`FIXME`/`HACK`, 0 test
+  credentials in `src/`. The fabrication guards pass, including the blocked
+  contractor testimonial and the invented £40k advert statistic.
+- **PWA**: `public/manifest.webmanifest` declared in `layout.tsx`, a registered
+  service worker, apple-touch icons, safe-area handling in 14 files. My first
+  check reported the manifest missing and **my check was wrong, not the repo**.
+  The service worker's doctrine is worth quoting: *offline-tolerant, never
+  offline-deceptive* — HTML is network-first so a cached dashboard can never show
+  yesterday's numbers under today's date.
+
+### What this section did NOT do, so the report is not read as more than it is
+
+No deployment (no Vercel credential here). No live end-to-end run of the 192
+routes against production. No browser pass across viewports. The 12 failing tests
+are unchanged and remain the crawler/audit set that needs DNS this container does
+not have. The 42 unthrottled compute routes are measured and ceilinged, not
+throttled — that is bounded follow-up work, not a silent gap.
