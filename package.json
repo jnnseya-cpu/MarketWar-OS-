@@ -25,7 +25,7 @@
     "smoke": "node scripts/smoke.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
     "seed:accounts": "node scripts/seed-accounts.mjs",
-    "verify": "npm run check:layers && npm run check:casts && npm run check:orphans && npm run check:exposure && npm run check:register && npm run check:advisories && npm run check:indexes && npm run lint && npm run typecheck && npm test && npm run build",
+    "verify": "npm run check:layers && npm run check:casts && npm run check:orphans && npm run check:exposure && npm run check:register && npm run check:key-reads && npm run check:advisories && npm run check:indexes && npm run lint && npm run typecheck && npm test && npm run build",
     "check:layers": "node scripts/check-layers.mjs",
     "check:casts": "node scripts/check-casts.mjs",
     "check:palette": "node scripts/check-palette.mjs",
@@ -48,6 +48,7 @@
     "check:exposure": "node scripts/check-route-exposure.mjs",
     "check:register": "node scripts/check-data-register.mjs",
     "check:controls": "node scripts/check-dead-controls.mjs",
+    "check:key-reads": "node scripts/check-key-reads.mjs",
     "check:indexes": "node scripts/check-firestore-indexes.mjs",
     "drive:live": "node --import tsx scripts/drive-modules.mjs",
     "deploy:rules": "firebase deploy --only firestore:rules,storage:rules",
@@ -63,6 +64,7 @@
     "drive:import": "node --import tsx scripts/drive-imported-list.mjs",
     "drive:crawl": "node --import tsx scripts/drive-route-crawl.mjs",
     "drive:privacy": "node --import tsx scripts/drive-privacy.mjs",
+    "drive:keys": "node --import tsx scripts/drive-admin-keys.mjs",
     "drive:pages": "node --import tsx scripts/drive-feature-pages.mjs"
   },
   "dependencies": {

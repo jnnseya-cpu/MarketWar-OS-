@@ -244,6 +244,17 @@ export const ENV_PLATFORM: string[] = [
   // /api/health/email answers "is my build older than my env change?".
   "MW_BUILD_TIME",
   "NODE_ENV",
+  // Set by Next itself, naming which runtime a module is executing in. Read by
+  // `src/instrumentation.ts` so the platform-key hydration runs on the Node
+  // runtime only — the Firebase Admin SDK cannot run on the edge.
+  "NEXT_RUNTIME",
+  // READ IN ORDER TO PROVE IT IS NEVER WRITTEN. `scripts/drive-admin-keys.mjs`
+  // asserts that a hostile entry in the admin key store did not reach
+  // `process.env` — and NODE_OPTIONS is the name that makes that mechanism
+  // dangerous, since a value there is arbitrary code the next Node process
+  // runs. Catalogued rather than hidden behind a computed key: a security
+  // assertion that dodges the registry is invisible to the next audit.
+  "NODE_OPTIONS",
   "VERCEL",
   "VERCEL_ENV",
   "VERCEL_URL",

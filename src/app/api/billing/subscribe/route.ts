@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   // configured on a PRODUCTION deployment, refuse rather than returning a demo
   // "continue" path that the client would treat as activation. (Demo/dev without
   // Stripe stays explorable — there are no real accounts or entitlements there.)
-  if (!checkoutConfigured && process.env.NODE_ENV === "production") {
+  if (!checkoutConfigured() && process.env.NODE_ENV === "production") {
     return NextResponse.json(
       { ok: false, billingUnavailable: true, error: "Payments aren't enabled on this deployment yet — set STRIPE_SECRET_KEY. No paid plan is granted without a completed payment." },
       { status: 503 },

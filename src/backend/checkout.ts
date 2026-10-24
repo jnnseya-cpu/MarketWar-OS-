@@ -15,15 +15,38 @@ import { clickMetadata, type ClickIds } from "@/shared/click-attribution";
 // secret key (no `stripe` package). Demo-safe: without STRIPE_SECRET_KEY it
 // returns a simulated link plus the exact metadata that WILL attribute.
 
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
+// READ LAZILY, NOT CAPTURED AT IMPORT. It used to be
+// `const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || ""`, which is
+// evaluated the first time this module loads — so once the owner could set keys
+// in the admin account (§170), a Stripe key saved there would have been
+// hydrated into `process.env` and this module would still have been holding the
+// empty string it captured at boot. Checkout would have stayed in demo mode
+// with the admin screen reporting the key as set: a reported success that never
+// happened, on the money path.
+const stripeKey = (): string => process.env.STRIPE_SECRET_KEY || "";
 // Never fall back to localhost in a hosted build — a checkout/return URL of
 // localhost is broken for real customers. Default to the production domain.
 const APP_URL = (process.env.NEXT_PUBLIC_PRODUCTION_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.marketwaros.com").replace(/\/$/, "");
 
-export const checkoutConfigured = Boolean(STRIPE_SECRET_KEY);
+/**
+ * Is checkout live?
+ *
+ * A FUNCTION, NOT A CONSTANT. It was `export const checkoutConfigured =
+ * Boolean(STRIPE_SECRET_KEY)` — a boolean frozen the first time this module
+ * loaded, which cannot become true when the key arrives later. Now that the
+ * owner can set the Stripe key in the admin account (§170), that frozen false
+ * would have kept checkout in demo mode while the admin screen reported the key
+ * as set.
+ *
+ * A call reads as what it now is: a question asked at the moment it matters,
+ * not a fact decided at boot.
+ */
+export function checkoutConfigured(): boolean {
+  return Boolean(stripeKey());
+}
 
 /** Is the platform key one that moves real money? */
-export function keyIsLive(secret = STRIPE_SECRET_KEY): boolean {
+export function keyIsLive(secret = stripeKey()): boolean {
   return /^(sk|rk)_live/.test(secret);
 }
 
@@ -85,9 +108,9 @@ export async function createTopupCheckout(input: { amountGbp: number; orgId?: st
   const ACU_PER_GBP = 100;
   const acus = Math.max(0, Math.round(amountGbp * ACU_PER_GBP));
   const metadata = { marketwar_brand_id: "", marketwar_source: "ACU top-up" };
-  if (amountGbp <= 0 || acus <= 0) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, acus, note: "amount and acus must be > 0", error: "amount and acus must be > 0" };
+  if (amountGbp <= 0 || acus <= 0) return { ok: false, mode: checkoutConfigured() ? "live" : "demo", url: null, sessionId: null, metadata, acus, note: "amount and acus must be > 0", error: "amount and acus must be > 0" };
 
-  if (!checkoutConfigured) {
+  if (!checkoutConfigured()) {
     return {
       ok: true, mode: "demo", sessionId: null, metadata, acus,
       url: `${APP_URL}/checkout-demo?topup=1&acus=${acus}&amt=${amountGbp}`,
@@ -113,7 +136,7 @@ export async function createTopupCheckout(input: { amountGbp: number; orgId?: st
   });
   try {
     const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-      method: "POST", headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}`, "Content-Type": "application/x-www-form-urlencoded" }, body,
+      method: "POST", headers: { Authorization: `Bearer ${stripeKey()}`, "Content-Type": "application/x-www-form-urlencoded" }, body,
     });
     const data = (await res.json()) as { url?: string; id?: string; error?: { message?: string } };
     if (!res.ok) return { ok: false, mode: "live", url: null, sessionId: null, metadata, acus, note: "Stripe rejected the top-up", error: data?.error?.message || `HTTP ${res.status}` };
@@ -133,9 +156,9 @@ export async function createSubscriptionCheckout(input: { planId: string; planNa
   const amountGbp = Math.max(0, Number(input.amountGbp) || 0);
   const orgId = (input.orgId || "").trim();
   const metadata = { marketwar_brand_id: "", marketwar_source: `subscription:${input.planId}` };
-  if (amountGbp <= 0) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, planId: input.planId, cycle, note: "amount must be > 0 (Free plan needs no checkout)", error: "amount must be > 0" };
+  if (amountGbp <= 0) return { ok: false, mode: checkoutConfigured() ? "live" : "demo", url: null, sessionId: null, metadata, planId: input.planId, cycle, note: "amount must be > 0 (Free plan needs no checkout)", error: "amount must be > 0" };
 
-  if (!checkoutConfigured) {
+  if (!checkoutConfigured()) {
     return {
       ok: true, mode: "demo", sessionId: null, metadata, planId: input.planId, cycle,
       url: `${APP_URL}/checkout-demo?plan=${encodeURIComponent(input.planId)}&cycle=${cycle}&amt=${amountGbp}`,
@@ -172,7 +195,7 @@ export async function createSubscriptionCheckout(input: { planId: string; planNa
   });
   try {
     const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-      method: "POST", headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}`, "Content-Type": "application/x-www-form-urlencoded" }, body,
+      method: "POST", headers: { Authorization: `Bearer ${stripeKey()}`, "Content-Type": "application/x-www-form-urlencoded" }, body,
     });
     const data = (await res.json()) as { url?: string; id?: string; error?: { message?: string } };
     if (!res.ok) return { ok: false, mode: "live", url: null, sessionId: null, metadata, planId: input.planId, cycle, note: "Stripe rejected the subscription", error: data?.error?.message || `HTTP ${res.status}` };
@@ -238,15 +261,15 @@ export async function createCheckoutLink(input: CheckoutInput): Promise<Checkout
   const currency = (input.currency || "gbp").toLowerCase();
   const metadata = { marketwar_brand_id: brandId, marketwar_source: source };
 
-  if (!brandId) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, note: "brandId is required", error: "brandId is required" };
-  if (amountGbp <= 0) return { ok: false, mode: checkoutConfigured ? "live" : "demo", url: null, sessionId: null, metadata, note: "amount must be greater than zero", error: "amount must be > 0" };
+  if (!brandId) return { ok: false, mode: checkoutConfigured() ? "live" : "demo", url: null, sessionId: null, metadata, note: "brandId is required", error: "brandId is required" };
+  if (amountGbp <= 0) return { ok: false, mode: checkoutConfigured() ? "live" : "demo", url: null, sessionId: null, metadata, note: "amount must be greater than zero", error: "amount must be > 0" };
 
   const seller = sellerRoute(input.stripeAccountId);
-  if (checkoutConfigured && seller.route === "refuse") {
+  if (checkoutConfigured() && seller.route === "refuse") {
     return { ok: false, mode: "live", url: null, sessionId: null, metadata, note: seller.note, error: "This sale would be paid to MarketWar rather than to you — connect your own Stripe account, or use your own payment link on a funnel page." };
   }
 
-  if (!checkoutConfigured) {
+  if (!checkoutConfigured()) {
     return {
       ok: true, mode: "demo", sessionId: null, metadata,
       url: `${APP_URL}/checkout-demo?brand=${encodeURIComponent(brandId)}&source=${encodeURIComponent(source)}&amt=${amountGbp}`,
@@ -273,7 +296,7 @@ export async function createCheckoutLink(input: CheckoutInput): Promise<Checkout
     const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+        Authorization: `Bearer ${stripeKey()}`,
         "Content-Type": "application/x-www-form-urlencoded",
         // Direct charge on the seller's own account: Stripe settles to THEM.
         ...(seller.account ? { "Stripe-Account": seller.account } : {}),
