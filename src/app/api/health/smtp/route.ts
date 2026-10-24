@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 // SMTP connectivity probe — confirms the sending node is reachable and speaks
-// SMTP, WITHOUT sending anything or authenticating. Connects to SMTP_HOST:PORT,
+// SMTP, WITHOUT sending anything or authenticating. Connects to SMTP_HOST:SMTP_PORT,
 // reads the greeting, sends EHLO, and reports whether STARTTLS + AUTH are
 // advertised. Read-only and credential-free: it never sends AUTH or a message,
 // and never returns SMTP_USER/PASS. Use it to verify a freshly-deployed
@@ -9,12 +9,18 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const HOST = (process.env.SMTP_HOST || "").trim();
-const PORT = Number((process.env.SMTP_PORT || "587").trim());
-const SECURE = (process.env.SMTP_SECURE || "").trim() === "true" || PORT === 465;
+// READ PER REQUEST, NOT CAPTURED AT IMPORT. These were module-level consts, so
+// once the sending credentials could be set in the admin account (§170) this
+// diagnostic would have gone on reporting "SMTP_HOST is not set" for the life
+// of the instance while the platform was already sending. A health endpoint
+// that disagrees with the system it describes is worse than no health endpoint:
+// it sends the reader to fix something that is not broken.
+const host = () => (process.env.SMTP_HOST || "").trim();
+const port = () => Number((process.env.SMTP_PORT || "587").trim());
+const secure = () => (process.env.SMTP_SECURE || "").trim() === "true" || port() === 465;
 
 export async function GET() {
-  if (!HOST) {
+  if (!host()) {
     return NextResponse.json({
       configured: false,
       note: "SMTP_HOST is not set — the app is not pointed at a sending node yet. Deploy infra/sending-node and set SMTP_HOST/PORT/USER/PASS.",
@@ -26,9 +32,9 @@ export async function GET() {
   const day = new Date().toISOString().slice(0, 10);
   return NextResponse.json({
     configured: true,
-    host: HOST,
-    port: PORT,
-    secure: SECURE,
+    host: host(),
+    port: port(),
+    secure: secure(),
     pool: poolInfo(day),
     ...result,
     howToRead:
@@ -81,9 +87,9 @@ async function probe(): Promise<Record<string, unknown>> {
     };
 
     try {
-      socket = SECURE
-        ? tls.connect({ host: HOST, port: PORT, servername: HOST })
-        : net.connect({ host: HOST, port: PORT });
+      socket = secure()
+        ? tls.connect({ host: host(), port: port(), servername: host() })
+        : net.connect({ host: host(), port: port() });
       socket.setTimeout(8000, () => done({ reachable: false, reason: "connection timed out (node down, firewall, or wrong host/port)" }));
       socket.on("data", onData);
       socket.on("error", (e) => done({ reachable: false, reason: (e as Error).message }));

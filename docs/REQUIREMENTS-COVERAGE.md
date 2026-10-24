@@ -11553,3 +11553,203 @@ than serving** — `resolveBrandAccess` fails closed.
   opposite ways. Kept, on the basis that the brand is not the data subject whose
   likeness it protects. If the owner wants it erased on brand request, that is
   his instruction to give and it belongs in writing.
+
+---
+
+## 42. Every required API key, set up in the admin account (§170, 2026-10-24)
+
+Owner directive: *"All required API keys, to be set up in the admin account."*
+
+Before this, all 126 catalogued variables lived in the hosting dashboard. The
+owner had to leave the product to configure the product, a redeploy was needed
+before a key took effect, and `/api/health/live` — the one surface that knew
+which keys were missing — could do nothing about it.
+
+### The design decision that made it a small change instead of a hundred-file one
+
+The platform reads keys the way it always has: `process.env.ANTHROPIC_API_KEY`
+and 124 others, synchronously, at 125 call sites. Rewriting those into async
+store reads would be a refactor of working code across the whole tree, which
+the third rule forbids without a reason. So the store **hydrates into
+`process.env`** instead: every existing read finds the admin account's value
+with no call-site change at all.
+
+- `src/backend/platform-keys.ts` — the store (`platform_config/admin_keys`),
+  AES-256-GCM encrypted per value, plus the inventory, the hydration and the
+  refusals.
+- `src/instrumentation.ts` (NEW) — Next's once-per-instance hook, so keys are
+  loaded before the first request. It **cannot** fail a boot: a Firestore hiccup
+  leaves the platform in exactly the state it was in before this feature
+  existed, and the health route reports the gap.
+- `ensurePlatformKeys()` at the AI gateway and the sending doors — TTL-cached at
+  60 seconds, so a key saved in the admin account reaches a *warm* instance
+  instead of waiting for it to recycle. Without this the owner would paste a
+  key, see "saved", press an AI action and get the demo path with nothing
+  explaining why.
+- `src/app/api/admin/keys/route.ts` + `src/components/AdminKeys.tsx` — the
+  screen, grouped by catalogue group, with what each key unlocks and where to
+  obtain it.
+
+### THREE KINDS OF KEY THAT CANNOT LIVE THERE, AND SAYING SO IS THE FEATURE
+
+An admin screen that accepts a key it cannot use is worse than one that refuses
+it: the owner pastes it, sees "saved", and the platform stays dark with no
+explanation. Each refusal names its reason on the row.
+
+1. **The Firebase Admin credentials.** The store IS Firestore. Reading a key out
+   of Firestore in order to connect to Firestore is a bootstrap paradox.
+2. **`FIELD_ENCRYPTION_MASTER_KEY`.** It is what decrypts the store. Storing it
+   in the clear to avoid the paradox would hand over every other key with it.
+   **With no master key set, saving is refused outright** rather than writing a
+   provider credential in plain text — the same fail-closed `crypto.ts` already
+   applies to contact data.
+3. **Anything `NEXT_PUBLIC_*`.** Next **inlines** those into the browser bundle
+   at BUILD time, so a value saved at runtime cannot change a string compiled
+   last week. Accepting one would be a reported success that never happened.
+
+**92 of 126 settable; 34 refused with a stated reason.**
+
+### Which value wins, and why the split brain is made visible instead of argued about
+
+The **stored** value wins, because a screen that cannot change a key already in
+Vercel does not answer the request. The cost is two sources of truth, so it is
+surfaced rather than hidden: the inventory marks every key that is overriding an
+environment value, `/api/health/live` reports how many keys came from each
+source, and every set and clear is written to the audit log and raised as a
+`credential_set` security event.
+
+**`ORIGINAL_ENV` is why "remove this key" is reversible.** Hydration overwrites
+`process.env`, so without a copy of what the host actually supplied — captured
+once at module load, before anything is hydrated — clearing a stored key would
+take the platform dark until the next cold start while the screen cheerfully
+reported the environment value as still present.
+
+### The security boundary, and why it is a pure function
+
+Hydration assigns into a running Node server's own environment. Anyone who
+could write arbitrary **names** into that document would be setting arbitrary
+environment variables on a live server, and `NODE_OPTIONS` alone makes that
+remote code execution.
+
+So hydration is **allowlisted, not filtered**: a name is applied only if it is
+in `ENV_CATALOGUE` *and* passes `storeable()`. And `hydrationPlan()` is a pure
+function taking the document and a decrypt callback, specifically so the
+dangerous input can be driven directly — a boundary reachable only through
+Firestore is a boundary nobody tests. The suite hands it `NODE_OPTIONS`,
+`PATH`, `LD_PRELOAD`, `NODE_TLS_REJECT_UNAUTHORIZED`, `HTTPS_PROXY`, the master
+key, a Firebase private key and a `NEXT_PUBLIC_` name, and proves **only the one
+legitimate key is applied**.
+
+### A HOLE IN MY OWN ROUTE, FOUND BY DRIVING IT
+
+The first run of `drive:keys` reported `GET /api/admin/keys` answering an
+**unidentified request with HTTP 200 and the whole inventory** — every
+credential the platform reads, which ones are set, and a fingerprint for each.
+
+`requireAuthEnforced` refuses an unidentified caller **only when `NODE_ENV` is
+production**, because `isolationUnavailable()` is written that way to keep
+zero-config demo mode working. Below production, `requireAuth` passes everybody
+through and — as its own doc comment warns — **returns before it looks at the
+scope**. So `{ scope: "platform_admin" }` was not a check at all on a keyless or
+local deployment.
+
+That pass-through is correct for the surfaces it was written for. It is wrong
+here, because **there is no demo version of the platform's key inventory**, and
+nothing is lost by refusing: with no Firebase there is no database to keep a key
+in either. The route now requires an **identified** admin — `enforced` as well
+as `ok` — which fails closed in every mode. Held by a test and by the driver;
+the mutant that drops the `enforced` check fails 5 assertions.
+
+### Four more things the route will not do
+
+- **It never returns a value.** Not masked, not "last four" — four characters of
+  a credential in a screenshot is still four characters. The inventory carries a
+  **fingerprint** (a 12-hex hash) which answers the only question the owner
+  actually has: *is the key loaded the one I think it is?*
+- **It never accepts a value in a query string**, where it would land in access
+  logs, referrer headers and browser history. POST body only.
+- **A key pasted into the wrong provider's field is refused by shape**, using
+  the `envVar` the existing `SECRET_SHAPES` registry already carries — the
+  likeliest owner mistake, caught at the point of paste instead of surfacing an
+  hour later as a confusing provider error.
+- **No refusal echoes the value it refused.** Driven: a sentinel value is sent
+  through every path and every byte of every response is searched for it.
+
+### THE SILENT FAILURE MODE, AND THE GATE THAT NOW CATCHES IT
+
+Hydrating into `process.env` has exactly one way to fail, and it fails quietly:
+
+```ts
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
+export const checkoutConfigured = Boolean(STRIPE_SECRET_KEY);
+```
+
+A module-level read is evaluated **once**, when the module first loads — always
+before a lazily-hydrated key arrives. So the module holds the empty string for
+the life of the instance while the admin screen, `/api/health/live` and the
+store all correctly report the key as set. **Checkout would have stayed in demo
+mode with the Stripe key visibly present.** A reported success that never
+happened, on the money path.
+
+`scripts/check-key-reads.mjs` (in `verify`) fails the build on a module-level
+read of any **settable credential** — 44 of the 126 catalogued names. It found
+three:
+
+- **`checkout.ts`** — the Stripe key and a frozen `checkoutConfigured` boolean.
+  Both now read at the moment of use; `checkoutConfigured` is a function,
+  because a call reads as what it now is: a question asked when it matters
+  rather than a fact decided at boot.
+- **`human-check.ts`** — `humanCheckSecretConfigured` was frozen while
+  `secret()` on the next line was already lazy, so the health warning and the
+  actual behaviour could disagree. Worse than either being wrong on its own.
+- **`/api/health/smtp`** — host, port and TLS captured at import, so the
+  diagnostic would have gone on reporting "SMTP_HOST is not set" while the
+  platform was already sending.
+
+**Its first run reported 32 findings and most were noise**, which is the
+instrument failure this repository punishes: a default parameter
+(`function f(raw = process.env.X)`), a one-line function body
+(`export function serperKey() { return process.env.SERPER_API_KEY; }`) and an
+arrow are all evaluated per call, and counting parentheses as well as braces
+made "module level" mean nothing. Scoped to **secrets** and taught to read a
+lazy line, it reports the 28 non-secret freezes (model ids, host defaults,
+cost-per-second constants) **without failing**, because freezing a tuning
+default is the behaviour this platform has always had and failing a build over
+it is churn dressed as rigour.
+
+### THE BUILD FAILED, AND THE BOOT HOOK WAS THE WRONG ANSWER
+
+Hydration first ran from `src/instrumentation.ts`, Next's once-per-instance
+hook. `npm run build` then failed: this platform has middleware, so Next
+compiles an **edge** bundle of instrumentation as well as a Node one, and the
+edge compilation followed the import chain into `firebase-admin` →
+`@google-cloud/firestore` → `gaxios` → `require("https")`, which does not exist
+on the edge. A `NEXT_RUNTIME` guard does not help — webpack bundles what it can
+see, not what will run — and `serverExternalPackages: ["firebase-admin"]`, which
+is already set, does not reach that compilation.
+
+So hydration is **lazy**, at the doors that read a key — the AI gateway, the
+sending path, paid enrichment and the two Stripe checkout doors — and that is
+the better design on its own merits: a cold start pays no store read unless
+something needs a key. The boot hook was deleted rather than fought.
+
+### Verification
+
+- `tests/platform-keys.test.mjs` — **19 tests**. Mutants killed: a blocklist in
+  place of the allowlist; allowing `NEXT_PUBLIC_`; `fromEnvironment` reading
+  live `process.env` instead of the captured copy; dropping the `enforced`
+  check.
+- `npm run drive:keys` — **18 proven / 0 broken** through the real handlers.
+- One fault in my own test: the credential scan matched the bare string
+  `whsec_` and failed on the **catalogue's own help text** ("Signing secret
+  (whsec_…)"). A credential is a prefix plus a payload, and a test that cannot
+  tell those apart fails for a reason unrelated to what it tests.
+
+### NOT PROVEN
+
+The authorised path. No Firebase credentials exist in this container, so the
+route refuses every request — correctly, and that refusal is one of the proven
+properties. **Storing a key, hydrating it into a second instance, and clearing
+it back to the environment value are unexercised and remain so until a keyed
+run.** The allowlist, every refusal and the no-echo property do not depend on
+either and are proven here.

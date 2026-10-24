@@ -3,15 +3,22 @@
 Prepared, then stopped — the brief's rule for anything irreversible or anything
 needing a credential this container does not have. Nothing below was attempted.
 
+> **UPDATE (§170): most of this list is now done from inside the product.**
+> Admin Control Centre → **Platform keys** sets 92 of the 126 catalogued
+> variables, encrypted, with no redeploy. Only items 2 and the master key below
+> still need the hosting dashboard, and the reason is a bootstrap one: the key
+> store lives in Firestore and is encrypted with that master key, so neither can
+> be read out of the thing it unlocks.
+
 ## Must happen before anyone pays money for this
 
 | # | Action | Why it is yours and not mine | What is already prepared |
 |---|---|---|---|
 | 1 | **Rotate the Meta Graph API token** pasted into chat earlier | It is a live credential that was exposed in a conversation. Meta Business Settings → Users → System Users → regenerate | Verified absent from every tracked file, the working tree and every commit on every branch. It was never written anywhere |
-| 2 | **Set the Firebase Admin credentials** in Vercel | No deploy access from here, and the keys are yours | Every brand-scoped route already refuses with 503 until they are set — the platform fails closed, not open. `docs/DEPLOYMENT.md` lists the exact variables |
-| 3 | **Set `SERPER_API_KEY` and `LEADMAGIC_API_KEY`** | Your accounts, your billing | The enrichment chain is driven and proven; it spends nothing without them and explains each step it cannot take |
-| 4 | **Set the sending pool** (`MW_SENDING_POOL`, or `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` on our own domain) | Our own infrastructure, your credentials | `infra/sending-node/` is the relay; Sending Domains handles the customer's DKIM. No third-party ESP is named anywhere, and none will be |
-| 5 | **Set `CRON_SECRET`** | It authorises the scheduled lanes | The 10 Vercel crons are declared; each refuses without it |
+| 2 | **Set the Firebase Admin credentials AND `FIELD_ENCRYPTION_MASTER_KEY`** in Vercel | The only two that cannot be managed in the product: the key store lives in Firestore and is encrypted with that master key, so neither can be read out of what it unlocks. Set these once and everything else moves into the admin screen | Every brand-scoped route already refuses with 503 until they are set — the platform fails closed, not open. `docs/DEPLOYMENT.md` lists the exact variables |
+| 3 | **Set `SERPER_API_KEY` and `LEADMAGIC_API_KEY`** | Your accounts, your billing | **Now settable in Admin → Platform keys**, no deploy. The enrichment chain is driven and proven; it spends nothing without them and explains each step it cannot take |
+| 4 | **Set the sending pool** (`MW_SENDING_POOL`, or `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` on our own domain) | Our own infrastructure, your credentials. **Settable in Admin → Platform keys** | `infra/sending-node/` is the relay; Sending Domains handles the customer's DKIM. No third-party ESP is named anywhere, and none will be |
+| 5 | **Set `CRON_SECRET`** | It authorises the scheduled lanes. **Settable in Admin → Platform keys** | The 10 Vercel crons are declared; each refuses without it |
 | 6 | **Run a test-mode Stripe checkout end to end** | Needs your Stripe test keys, and the brief forbids me moving real money | The checkout, the webhook receipt and the wallet credit are implemented and idempotent; none is verified |
 | 7 | **Repeat the mobile walkthrough signed IN** | Needs an account | `npm run drive:crawl` does it signed out — 95 pages, 0 failures. The authenticated half is unproven |
 

@@ -143,6 +143,31 @@ export async function GET() {
   // missing. `shared/env-catalogue.ts` is now the single list, and a test walks
   // the source and fails if anything read from the environment is missing from
   // it, so this can no longer drift.
+  // THE KEY STORE IS LOADED DYNAMICALLY, LIKE EVERY OTHER BACKEND MODULE HERE,
+  // AND A TEST CAUGHT ME IMPORTING IT AT MODULE LEVEL. This route's whole job
+  // is to still answer when something is broken: an import-time throw in a
+  // top-level import takes the diagnostic down with a bare 500, so the one page
+  // that would have named the failing module becomes part of the failure. The
+  // rule was already written down and already tested — and the test fired.
+  let keySource: { admin: number; environment: number; unset: number; overriding: number; note: string } | undefined;
+  try {
+    const pk = await import("@/backend/platform-keys");
+    const loaded = new Set(pk.hydratedNames());
+    const counts = { admin: 0, environment: 0, unset: 0, overriding: 0 };
+    for (const e of ENV_CATALOGUE) {
+      const stored = loaded.has(e.name);
+      const inEnv = pk.fromEnvironment(e.name);
+      if (stored) counts.admin++; else if (inEnv) counts.environment++; else counts.unset++;
+      if (stored && inEnv) counts.overriding++;
+    }
+    keySource = {
+      ...counts,
+      note: "Keys can be set in the admin account, and a stored key wins over the hosting environment. These counts are what THIS server instance has loaded — not what the store contains. The per-key list is in the admin inventory, behind the admin gate.",
+    };
+  } catch (e) {
+    errors["platform-keys"] = (e as Error).message;
+  }
+
   const KEYS = ENV_NAMES;
   const envPresent: Record<string, boolean> = {};
   for (const k of KEYS) envPresent[k] = env(k);
@@ -264,6 +289,9 @@ export async function GET() {
     envMissing: ENV_CATALOGUE
       .filter((e) => !env(e.name))
       .map((e) => ({ name: e.name, group: e.group, secret: e.secret, unlocks: e.unlocks, where: e.where })),
+    // WHERE EACH KEY CAME FROM, not merely whether it is set. Absent only if the
+    // key module could not be loaded, in which case `moduleErrors` names it.
+    keySources: keySource,
     envSummary: (() => {
       const missing = ENV_CATALOGUE.filter((e) => !env(e.name));
       const byGroup: Record<string, number> = {};

@@ -69,6 +69,35 @@ same gate used on every engine commit — do not deploy on a red gate.
 
 ## 3. Environment variables (production)
 
+> **MOST KEYS ARE NOW SET IN THE ADMIN ACCOUNT, NOT HERE.**
+> Owner directive, §169: *"All required API keys, to be set up in the admin
+> account."* Sign in as the platform admin → **Admin Control Centre → Platform
+> keys**, and set them there. Values are encrypted before storage, never shown
+> again (a fingerprint identifies which key is loaded), take effect on the
+> server that receives them immediately and on every other instance within a
+> minute, and need **no redeploy**. **92 of the 126 catalogued variables** work
+> this way.
+>
+> **FOUR SETS MUST STILL BE SET HERE, AND THE REASON IS NOT POLICY:**
+>
+> 1. **`FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `FIREBASE_PROJECT_ID`**
+>    (or `FIREBASE_SERVICE_ACCOUNT`) — the key store lives in Firestore, so
+>    Firebase Admin has to work before anything in it can be read. Bootstrap.
+> 2. **`FIELD_ENCRYPTION_MASTER_KEY`** — it is what decrypts the key store.
+>    Keeping it inside what it decrypts cannot work, and storing it in the clear
+>    would expose every other key. **Until it is set, the admin screen refuses
+>    to save anything** rather than storing a credential in plain text.
+> 3. **Every `NEXT_PUBLIC_*` value** — Next.js compiles these into the browser
+>    bundle at BUILD time. A value saved at runtime cannot change a string that
+>    was compiled last week. The admin screen says so on the row instead of
+>    accepting it and doing nothing.
+> 4. **`FIREBASE_STORAGE_BUCKET`** — read while the Admin SDK initialises,
+>    before the store is reachable.
+>
+> Set those, deploy once, and everything else is managed from the product.
+> `/api/health/live` reports the SOURCE of every key (admin account vs hosting
+> environment) so a key resolving from somewhere unexpected is never a guess.
+
 Copy `.env.example` → configure in the host's env panel. Secrets are set in the
 console **only** — never committed. Public `NEXT_PUBLIC_*` identifiers are safe.
 

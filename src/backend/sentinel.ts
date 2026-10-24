@@ -45,7 +45,8 @@ export type EventKind =
   | "identity_rejected"
   | "disposable_email"
   | "data_export"
-  | "data_erasure";
+  | "data_erasure"
+  | "credential_set";
 
 export const EVENT_KINDS: { kind: EventKind; what: string }[] = [
   { kind: "auth_failed", what: "A request presented an invalid or expired session." },
@@ -66,6 +67,9 @@ export const EVENT_KINDS: { kind: EventKind; what: string }[] = [
   // erasure is the one nobody can undo. Both belong in the trail.
   { kind: "data_export", what: "A brand's complete data export was issued under the right of access." },
   { kind: "data_erasure", what: "A brand's data was erased under the right to erasure, leaving the stores the law requires kept." },
+  // A platform credential changed. The event records the NAME and a fingerprint
+  // of the value, never the value — the same rule `credential_refused` follows.
+  { kind: "credential_set", what: "A platform API key was set or cleared from the admin account." },
 ];
 
 export type SecurityEvent = {

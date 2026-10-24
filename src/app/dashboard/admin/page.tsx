@@ -17,6 +17,7 @@ import { PageHeader, Pill, StatCard } from "@/components/ui";
 import ProductKpis from "@/components/ProductKpis";
 import AdminInvites from "@/components/AdminInvites";
 import AdminGrantAcus from "@/components/AdminGrantAcus";
+import AdminKeys from "@/components/AdminKeys";
 import { authedFetch } from "@/frontend/api-client";
 
 // Mirrors of the backend OwnerDashboard shape (the engine is server-only).
@@ -236,6 +237,13 @@ export default function AdminPage() {
           happened. */}
       <AdminGrantAcus />
       <AdminInvites />
+
+      {/* Owner directive: every required API key is set up in the admin
+          account. It used to mean leaving the product to configure the product
+          in a hosting dashboard, and a deploy before a key took effect. */}
+      <div className="mt-6">
+        <AdminKeys />
+      </div>
     </div>
   );
 }

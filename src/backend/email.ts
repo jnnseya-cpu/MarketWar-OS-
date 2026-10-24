@@ -915,6 +915,8 @@ export async function sendEmailBatch(
   common?: Parameters<typeof sendEmailBatchInner>[1],
 ): Promise<SendResult[]> {
   try {
+    const { ensurePlatformKeys } = await import("@/backend/platform-keys");
+    await ensurePlatformKeys();
     return await sendEmailBatchInner(items, common);
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
@@ -1183,6 +1185,13 @@ async function sendEmailBatchInner(
  */
 export async function sendEmail(opts: Parameters<typeof sendEmailInner>[0]): Promise<SendResult> {
   try {
+    // The sending credentials can now be set in the admin account, so make sure
+    // this instance has them before deciding whether sending is configured.
+    // Same reason as the AI gateway: without it, a pool saved in the Admin
+    // Control Centre would read as "sending is dark" until the instance
+    // recycled. TTL-cached, never throws.
+    const { ensurePlatformKeys } = await import("@/backend/platform-keys");
+    await ensurePlatformKeys();
     return await sendEmailInner(opts);
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));

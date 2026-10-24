@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     engine: "Tagged checkout links — payments self-attribute",
-    live: checkoutConfigured,
+    live: checkoutConfigured(),
     doctrine: "Creates a Stripe Checkout Session stamped with metadata.marketwar_brand_id + marketwar_source so the webhook records attributed revenue automatically. No `stripe` package; demo-safe without STRIPE_SECRET_KEY.",
   });
 }

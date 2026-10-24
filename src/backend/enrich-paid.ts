@@ -81,6 +81,11 @@ export async function enrichPaid(
     country?: string;
   } = { maxCostAcu: 0 },
 ): Promise<EnrichResult> {
+  // The owner's keys can be set in the admin account, so make sure this
+  // instance has them before reading them from the environment. TTL-cached to
+  // one store read a minute and it never throws — see `backend/platform-keys.ts`.
+  const { ensurePlatformKeys } = await import("@/backend/platform-keys");
+  await ensurePlatformKeys();
   registerBuiltInProviders();
 
   const base: EnrichResult = {

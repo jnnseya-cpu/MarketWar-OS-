@@ -57,7 +57,24 @@ export const HUMAN_TOKEN_TTL_MS = 20 * 60_000;
 // one — a customer would solve a challenge and be told it was invalid. The
 // health route reports this rather than leaving it to be discovered in the wild.
 const EPHEMERAL_SECRET = randomBytes(32).toString("hex");
-export const humanCheckSecretConfigured = Boolean((process.env.HUMAN_CHECK_SECRET || "").trim());
+/**
+ * Is the signing secret configured?
+ *
+ * A FUNCTION, NOT A FROZEN BOOLEAN. It was a module-level `const`, evaluated
+ * the first time this module loaded — so now that the owner can set
+ * `HUMAN_CHECK_SECRET` in the admin account (§170), saving it there would have
+ * left this reporting `false` for the life of the instance: the health route
+ * would keep warning that challenges are signed with a per-process key while
+ * `secret()` on the line below was already using the real one. The warning and
+ * the behaviour would have disagreed, which is worse than either being wrong.
+ *
+ * `secret()` directly below was already lazy, which is what made the
+ * inconsistency possible — and `check:key-reads` now fails the build on this
+ * shape rather than leaving it to be noticed.
+ */
+export function humanCheckSecretConfigured(): boolean {
+  return Boolean((process.env.HUMAN_CHECK_SECRET || "").trim());
+}
 function secret(): string {
   return (process.env.HUMAN_CHECK_SECRET || "").trim() || EPHEMERAL_SECRET;
 }
@@ -249,7 +266,7 @@ export function humanCheckStatus(): {
   const appCheck = Boolean((process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "").trim());
   return {
     bits: POW_BITS,
-    secretConfigured: humanCheckSecretConfigured,
+    secretConfigured: humanCheckSecretConfigured(),
     appCheckConfigured: appCheck,
     // Honest: our check gates the allowance, it does not gate Identity Toolkit.
     blocksAccountCreation: appCheck,
@@ -258,7 +275,7 @@ export function humanCheckStatus(): {
       appCheck
         ? "App Check has a reCAPTCHA site key, so account creation itself can be enforced by Google — confirm enforcement is switched ON for Authentication in the Firebase console, because the key alone does not enforce anything."
         : "NEXT_PUBLIC_RECAPTCHA_SITE_KEY is not set, so nothing stops a script calling Google's Identity Toolkit directly with the public web API key and creating accounts. They will be empty accounts with no allowance, but they will exist. Set the key and turn on App Check enforcement to stop them being created at all.",
-      humanCheckSecretConfigured
+      humanCheckSecretConfigured()
         ? ""
         : "HUMAN_CHECK_SECRET is not set, so challenges are signed with a per-process key. On more than one instance, or after a restart, a customer can solve a challenge and be told it did not match. Set it before relying on this in production.",
     ].filter(Boolean).join(" "),

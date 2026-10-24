@@ -15,6 +15,7 @@ if (typeof window !== "undefined") {
 //   errors; a provider that still fails hands over to the next one (failover).
 // - With no keys at all the caller falls back to Demo Intelligence mode.
 
+import { ensurePlatformKeys } from "@/backend/platform-keys";
 import { spendVerdict, recordSpend, estimateCost } from "@/backend/ai-spend";
 
 import { guardPrompt, harden, type Untrusted, type Finding } from "@/backend/instruction-firewall";
@@ -684,6 +685,15 @@ export async function gatewayComplete(
   reqIn: GatewayRequest,
   opts: { budgetMs?: number; perCallMs?: number; tier?: ModelTier; paid?: boolean } = {},
 ): Promise<GatewayResponse> {
+  // THE OWNER'S KEYS NOW LIVE IN THE ADMIN ACCOUNT, so make sure this instance
+  // has them before deciding which providers are configured. Without this line
+  // a key saved in the Admin Control Centre would only reach a server instance
+  // when that instance next cold-started — so the owner would paste a key, see
+  // "saved", press an AI action and get the demo path, with nothing anywhere
+  // saying why. At most one Firestore read per minute per instance
+  // (`ensurePlatformKeys` is TTL-cached) and it never throws.
+  await ensurePlatformKeys();
+
   // The platform's own ceiling. Paid work is exempt and always runs: a customer
   // spending their own ACUs has covered the provider cost twice over under the
   // pricing law, and blocking them to protect the owner's budget would be
