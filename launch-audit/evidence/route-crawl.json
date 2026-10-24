@@ -1,0 +1,1946 @@
+{
+  "ranAt": "2026-10-24T18:51:37.489Z",
+  "commit": "c20c08cd1664a4c9b07abfa2fc0a064f87262d2a",
+  "viewport": "360x800, isMobile, CPU throttle 4x",
+  "pagesCrawled": 95,
+  "dynamicSkipped": [
+    "/b/[brandId]/[slug]",
+    "/portal/[token]"
+  ],
+  "results": [
+    {
+      "path": "/",
+      "status": 200,
+      "finalUrl": "/",
+      "textLen": 20496,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/about",
+      "status": 200,
+      "finalUrl": "/about",
+      "textLen": 2965,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/audit",
+      "status": 200,
+      "finalUrl": "/audit",
+      "textLen": 7387,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/blog",
+      "status": 200,
+      "finalUrl": "/blog",
+      "textLen": 5525,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/blog/creator-earning-programmes",
+      "status": 200,
+      "finalUrl": "/blog/creator-earning-programmes",
+      "textLen": 6409,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/choose-plan",
+      "status": 200,
+      "finalUrl": "/choose-plan",
+      "textLen": 3423,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/contact",
+      "status": 200,
+      "finalUrl": "/contact",
+      "textLen": 1356,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard",
+      "status": 200,
+      "finalUrl": "/dashboard",
+      "textLen": 1361,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/acquisition",
+      "status": 200,
+      "finalUrl": "/dashboard/acquisition",
+      "textLen": 1261,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/activity",
+      "status": 200,
+      "finalUrl": "/dashboard/activity",
+      "textLen": 1350,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/admin",
+      "status": 200,
+      "finalUrl": "/dashboard/admin",
+      "textLen": 5444,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [
+        "403 /api/admin/invites"
+      ],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/ai-agents",
+      "status": 200,
+      "finalUrl": "/dashboard/ai-agents",
+      "textLen": 2632,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/ai-visibility",
+      "status": 200,
+      "finalUrl": "/dashboard/ai-visibility",
+      "textLen": 1589,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/amplify",
+      "status": 200,
+      "finalUrl": "/dashboard/amplify",
+      "textLen": 2759,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/approvals",
+      "status": 200,
+      "finalUrl": "/dashboard/approvals",
+      "textLen": 1413,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/audit",
+      "status": 200,
+      "finalUrl": "/dashboard/audit",
+      "textLen": 1413,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/automation",
+      "status": 200,
+      "finalUrl": "/dashboard/automation",
+      "textLen": 1956,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/autopilot",
+      "status": 200,
+      "finalUrl": "/dashboard/autopilot",
+      "textLen": 1290,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/billing",
+      "status": 200,
+      "finalUrl": "/dashboard/billing",
+      "textLen": 4194,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/blog",
+      "status": 200,
+      "finalUrl": "/dashboard/blog",
+      "textLen": 6212,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/brand-kit",
+      "status": 200,
+      "finalUrl": "/dashboard/brand-kit",
+      "textLen": 1655,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/briefing",
+      "status": 200,
+      "finalUrl": "/dashboard/briefing",
+      "textLen": 1558,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/budget",
+      "status": 200,
+      "finalUrl": "/dashboard/budget",
+      "textLen": 1886,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/campaigns",
+      "status": 200,
+      "finalUrl": "/dashboard/campaigns",
+      "textLen": 1655,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/chains",
+      "status": 200,
+      "finalUrl": "/dashboard/chains",
+      "textLen": 6985,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/command",
+      "status": 200,
+      "finalUrl": "/dashboard/command",
+      "textLen": 5225,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/comms",
+      "status": 200,
+      "finalUrl": "/dashboard/comms",
+      "textLen": 16272,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/competitors",
+      "status": 200,
+      "finalUrl": "/dashboard/competitors",
+      "textLen": 3190,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/contact-hunter",
+      "status": 200,
+      "finalUrl": "/dashboard/contact-hunter",
+      "textLen": 3236,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/content",
+      "status": 200,
+      "finalUrl": "/dashboard/content",
+      "textLen": 1848,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/create",
+      "status": 200,
+      "finalUrl": "/dashboard/create",
+      "textLen": 1790,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/customers",
+      "status": 200,
+      "finalUrl": "/dashboard/customers",
+      "textLen": 1495,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/discover",
+      "status": 200,
+      "finalUrl": "/dashboard/discover",
+      "textLen": 2142,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/earnings",
+      "status": 200,
+      "finalUrl": "/dashboard/earnings",
+      "textLen": 5246,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [
+        "401 /api/share2earn"
+      ],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/email",
+      "status": 200,
+      "finalUrl": "/dashboard/email",
+      "textLen": 4242,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/email-templates",
+      "status": 200,
+      "finalUrl": "/dashboard/email-templates",
+      "textLen": 1488,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/engines",
+      "status": 200,
+      "finalUrl": "/dashboard/engines",
+      "textLen": 13302,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/find",
+      "status": 200,
+      "finalUrl": "/dashboard/find",
+      "textLen": 1286,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/first-customer",
+      "status": 200,
+      "finalUrl": "/dashboard/first-customer",
+      "textLen": 3091,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/go-live",
+      "status": 200,
+      "finalUrl": "/dashboard/go-live",
+      "textLen": 8041,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/growth-engine",
+      "status": 200,
+      "finalUrl": "/dashboard/growth-engine",
+      "textLen": 4543,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/hubs",
+      "status": 200,
+      "finalUrl": "/dashboard/hubs",
+      "textLen": 5408,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/inbox",
+      "status": 200,
+      "finalUrl": "/dashboard/inbox",
+      "textLen": 1419,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/influencers",
+      "status": 200,
+      "finalUrl": "/dashboard/influencers",
+      "textLen": 3964,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/integrations",
+      "status": 200,
+      "finalUrl": "/dashboard/integrations",
+      "textLen": 10225,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/landing-builder",
+      "status": 200,
+      "finalUrl": "/dashboard/landing-builder",
+      "textLen": 2269,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/landing-pages",
+      "status": 200,
+      "finalUrl": "/dashboard/landing-pages",
+      "textLen": 3156,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/library",
+      "status": 200,
+      "finalUrl": "/dashboard/library",
+      "textLen": 1445,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/local",
+      "status": 200,
+      "finalUrl": "/dashboard/local",
+      "textLen": 2490,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/market-exit",
+      "status": 200,
+      "finalUrl": "/dashboard/market-exit",
+      "textLen": 2973,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/money-ledger",
+      "status": 200,
+      "finalUrl": "/dashboard/money-ledger",
+      "textLen": 1234,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/offers",
+      "status": 200,
+      "finalUrl": "/dashboard/offers",
+      "textLen": 1185,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/omnirank",
+      "status": 200,
+      "finalUrl": "/dashboard/omnirank",
+      "textLen": 4659,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/organic",
+      "status": 200,
+      "finalUrl": "/dashboard/organic",
+      "textLen": 2634,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/organic-dominance",
+      "status": 200,
+      "finalUrl": "/dashboard/organic-dominance",
+      "textLen": 3713,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/partner-network",
+      "status": 200,
+      "finalUrl": "/dashboard/partner-network",
+      "textLen": 6151,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/product-engine",
+      "status": 200,
+      "finalUrl": "/dashboard/product-engine",
+      "textLen": 4666,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/prospecting",
+      "status": 200,
+      "finalUrl": "/dashboard/prospecting",
+      "textLen": 3397,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/publish",
+      "status": 200,
+      "finalUrl": "/dashboard/publish",
+      "textLen": 1297,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/recovery",
+      "status": 200,
+      "finalUrl": "/dashboard/recovery",
+      "textLen": 1681,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/reputation",
+      "status": 200,
+      "finalUrl": "/dashboard/reputation",
+      "textLen": 3385,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/revenue",
+      "status": 200,
+      "finalUrl": "/dashboard/revenue",
+      "textLen": 1297,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/roi",
+      "status": 200,
+      "finalUrl": "/dashboard/roi",
+      "textLen": 2279,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/search-dominance",
+      "status": 200,
+      "finalUrl": "/dashboard/search-dominance",
+      "textLen": 16088,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/segments",
+      "status": 200,
+      "finalUrl": "/dashboard/segments",
+      "textLen": 1063,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/sending-domains",
+      "status": 200,
+      "finalUrl": "/dashboard/sending-domains",
+      "textLen": 1568,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/sentinel",
+      "status": 200,
+      "finalUrl": "/dashboard/sentinel",
+      "textLen": 4685,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/seo-autopilot",
+      "status": 200,
+      "finalUrl": "/dashboard/seo-autopilot",
+      "textLen": 1188,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/settings",
+      "status": 200,
+      "finalUrl": "/dashboard/settings",
+      "textLen": 5328,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/dashboard/strategy",
+      "status": 200,
+      "finalUrl": "/dashboard/strategy",
+      "textLen": 1941,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/studio",
+      "status": 200,
+      "finalUrl": "/dashboard/studio",
+      "textLen": 1571,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/video",
+      "status": 200,
+      "finalUrl": "/dashboard/video",
+      "textLen": 11490,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/war-room",
+      "status": 200,
+      "finalUrl": "/dashboard/war-room",
+      "textLen": 1526,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/warfare",
+      "status": 200,
+      "finalUrl": "/dashboard/warfare",
+      "textLen": 2311,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/website-intel",
+      "status": 200,
+      "finalUrl": "/dashboard/website-intel",
+      "textLen": 8571,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/dashboard/whatsapp",
+      "status": 200,
+      "finalUrl": "/dashboard/whatsapp",
+      "textLen": 1577,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/developers",
+      "status": 200,
+      "finalUrl": "/developers",
+      "textLen": 3059,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/diagnose",
+      "status": 200,
+      "finalUrl": "/diagnose",
+      "textLen": 3408,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+        "Failed to load resource: the server responded with a status of 400 (Bad Request)"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [
+        "400 /api/organic-dominance",
+        "400 /api/audit"
+      ],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/features",
+      "status": 200,
+      "finalUrl": "/features",
+      "textLen": 12231,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/features/how-much-to-pay-an-affiliate",
+      "status": 200,
+      "finalUrl": "/features/how-much-to-pay-an-affiliate",
+      "textLen": 5186,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/get-started",
+      "status": 200,
+      "finalUrl": "/get-started",
+      "textLen": 2006,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/growth",
+      "status": 200,
+      "finalUrl": "/growth",
+      "textLen": 8006,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/how-it-works",
+      "status": 200,
+      "finalUrl": "/how-it-works",
+      "textLen": 9125,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/industries",
+      "status": 200,
+      "finalUrl": "/industries",
+      "textLen": 3110,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/login",
+      "status": 200,
+      "finalUrl": "/login",
+      "textLen": 630,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/onboarding",
+      "status": 200,
+      "finalUrl": "/onboarding",
+      "textLen": 595,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/partner",
+      "status": 200,
+      "finalUrl": "/partner",
+      "textLen": 644,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/policies",
+      "status": 200,
+      "finalUrl": "/policies",
+      "textLen": 3659,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/privacy",
+      "status": 200,
+      "finalUrl": "/privacy",
+      "textLen": 6530,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/share2earn",
+      "status": 200,
+      "finalUrl": "/share2earn",
+      "textLen": 7414,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": []
+    },
+    {
+      "path": "/signup",
+      "status": 200,
+      "finalUrl": "/signup",
+      "textLen": 682,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/status",
+      "status": 200,
+      "finalUrl": "/status",
+      "textLen": 1857,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/terms",
+      "status": 200,
+      "finalUrl": "/terms",
+      "textLen": 13634,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/unsubscribe",
+      "status": 200,
+      "finalUrl": "/unsubscribe",
+      "textLen": 585,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    },
+    {
+      "path": "/verify-human",
+      "status": 200,
+      "finalUrl": "/verify-human",
+      "textLen": 806,
+      "h1": 1,
+      "overflow": 0,
+      "errors": [
+        "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+      ],
+      "warnings": [],
+      "hydration": [],
+      "exceptions": [],
+      "failed": "",
+      "ownBroken": [],
+      "ownRefused": [],
+      "cancelled": [],
+      "outboundBlocked": [
+        "net::ERR_TUNNEL_CONNECTION_FAILED https://connect.facebook.net/en_US/fbevents.js"
+      ]
+    }
+  ]
+}

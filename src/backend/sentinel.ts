@@ -43,7 +43,9 @@ export type EventKind =
   | "credential_refused"
   | "payout_refused"
   | "identity_rejected"
-  | "disposable_email";
+  | "disposable_email"
+  | "data_export"
+  | "data_erasure";
 
 export const EVENT_KINDS: { kind: EventKind; what: string }[] = [
   { kind: "auth_failed", what: "A request presented an invalid or expired session." },
@@ -58,6 +60,12 @@ export const EVENT_KINDS: { kind: EventKind; what: string }[] = [
   { kind: "payout_refused", what: "A withdrawal was refused by the identity gate, the balance check or the fee guard." },
   { kind: "identity_rejected", what: "An identity submission failed validation." },
   { kind: "disposable_email", what: "A signup used a throwaway mailbox." },
+  // The two data-subject rights, recorded because they are the only requests
+  // that legitimately read or destroy everything a brand holds at once. An
+  // export is the request an attacker with a stolen session would make; an
+  // erasure is the one nobody can undo. Both belong in the trail.
+  { kind: "data_export", what: "A brand's complete data export was issued under the right of access." },
+  { kind: "data_erasure", what: "A brand's data was erased under the right to erasure, leaving the stores the law requires kept." },
 ];
 
 export type SecurityEvent = {

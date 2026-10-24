@@ -15,7 +15,7 @@ if (typeof window !== "undefined") {
 // Tokens are HMAC-signed with EMAIL_TRACKING_SECRET so open/click endpoints can't
 // be forged to poison a brand's stats or suppress a rival's list.
 
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { sealToken, openToken, isOpaqueToken } from "@/backend/opaque-token";
 import { FieldPath } from "firebase-admin/firestore";
 import { timed } from "@/backend/store-health";
@@ -135,6 +135,95 @@ export async function recordEvent(ev: Omit<EmailEvent, "id">): Promise<void> {
   if (ev.type === "bounce" || ev.type === "complaint" || ev.type === "unsubscribe") {
     await addSuppression(e.brandId, e.email, ev.type);
   }
+}
+
+/**
+ * PSEUDONYMISE THIS BRAND'S EVENTS — the erasure path for a store that must be
+ * KEPT but must stop identifying anybody.
+ *
+ * WHY THIS IS NOT A FIELD DELETE, and the generic one would have been wrong.
+ * The data register's first version said "strip the email field". Two problems,
+ * and a driver found both:
+ *
+ *   1. THE ADDRESS IS IN THE DOCUMENT ID. `evId` builds it as
+ *      `brandId::type::email::at`, so clearing the field leaves the recipient's
+ *      address sitting in the primary key. An anonymisation that leaves the
+ *      identifier in the key is not an anonymisation — it is a rename.
+ *   2. CLEARING IT WOULD BREAK THE NUMBERS IT EXISTS TO PROTECT. `eventStats`
+ *      counts recipients, not pixel loads: `sentUnique` is the size of a set of
+ *      addresses. Blank them all and every recipient collapses into one, so
+ *      every open rate on the platform would read as impossible and be
+ *      withheld — for every brand, because the ledger is shared.
+ *
+ * So the address is replaced by a STABLE HASH of itself. The row keeps its
+ * statistical value (two events from the same person still match, so unique
+ * counts survive), the address is gone, and the hash cannot be reversed to it
+ * — there is no address list to try it against, because that list is what was
+ * just erased.
+ *
+ * Returns how many events were rewritten, which is what the erasure receipt
+ * reports. In demo mode it rewrites the in-memory ledger, because an erasure
+ * that only works with Firestore configured is an erasure that reported
+ * success and did nothing — which is exactly what the receipt used to say.
+ */
+const EVENT_TYPES = new Set<EmailEventType>(["sent", "open", "click", "bounce", "complaint", "unsubscribe"]);
+
+/**
+ * Read a STORED event, checking it rather than asserting it.
+ *
+ * A `d.data() as EmailEvent` is the programmer promising the compiler something
+ * nobody verified, and the one caller that needed it here is the erasure path —
+ * where a malformed row must not be silently rewritten into a new document id
+ * built from undefined. A row that does not check is left exactly as it is and
+ * reported as not rewritten.
+ */
+function eventFromStored(data: unknown): EmailEvent | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Partial<EmailEvent>;
+  if (typeof d.id !== "string" || !d.id) return null;
+  if (typeof d.brandId !== "string" || !d.brandId) return null;
+  if (typeof d.email !== "string" || !d.email) return null;
+  if (typeof d.at !== "string" || !d.at) return null;
+  if (typeof d.type !== "string" || !EVENT_TYPES.has(d.type as EmailEventType)) return null;
+  return { ...d, id: d.id, brandId: d.brandId, email: d.email, at: d.at, type: d.type as EmailEventType };
+}
+
+export async function pseudonymiseBrandEvents(brandId: string): Promise<number> {
+  const id = (brandId || "").trim();
+  if (!id) return 0;
+  const anon = (email: string) => `anon:${createHash("sha256").update(`mw-event|${email.toLowerCase()}`).digest("hex").slice(0, 24)}`;
+  const already = (email: string) => email.startsWith("anon:");
+
+  if (adminConfigured && adminDb) {
+    const snap = await adminDb.collection("email_events").where("brandId", "==", id).limit(10_000).get();
+    let n = 0;
+    const col = adminDb.collection("email_events");
+    for (let i = 0; i < snap.docs.length; i += 300) {
+      const batch = adminDb.batch();
+      for (const d of snap.docs.slice(i, i + 300)) {
+        const e = eventFromStored(d.data());
+        if (!e || already(e.email)) continue;
+        const next: EmailEvent = { ...e, email: anon(e.email) };
+        next.id = evId(next);
+        // The key carried the address, so the document MOVES rather than being
+        // patched: written under its new id, then the old one deleted.
+        batch.set(col.doc(next.id.replace(/\//g, "_")), next, { merge: false });
+        batch.delete(d.ref);
+        n++;
+      }
+      await batch.commit();
+    }
+    return n;
+  }
+
+  let n = 0;
+  for (const e of mem) {
+    if (e.brandId !== id || !e.email || already(e.email)) continue;
+    e.email = anon(e.email);
+    e.id = evId(e);
+    n++;
+  }
+  return n;
 }
 
 // Persistent suppression (survives process restarts; the in-memory ledger in

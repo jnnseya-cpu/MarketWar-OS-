@@ -68,6 +68,35 @@ export async function listEvents(brandId: string): Promise<RevenueEvent[]> {
   return mem.get(brandId) ?? [];
 }
 
+/**
+ * Remove EVERY revenue event for a brand — the erasure path.
+ *
+ * WHY THIS EXISTS RATHER THAN A LOOP IN THE CALLER. The data register's erasure
+ * walked Firestore generically, which meant that with persistence unconfigured
+ * it removed nothing and the receipt still said "erased". Measured, not
+ * feared: a brand with one event was erased, the receipt reported success, and
+ * `listEvents` returned the event afterwards. A reported success that never
+ * happened is this codebase's oldest defect, and the one file where it must not
+ * live is the one that answers a statutory erasure request.
+ *
+ * So each store that keeps a brand-scoped in-memory copy owns its own eraser,
+ * the way `clearContacts` already did, and the register calls it instead of
+ * reaching past the module into a database that may not be there.
+ *
+ * Returns how many events went, which is what the receipt reports.
+ */
+export async function clearEvents(brandId: string): Promise<number> {
+  const id = (brandId || "").trim();
+  if (!id) return 0;
+  const events = await listEvents(id);
+  if (adminConfigured && adminDb) {
+    for (const e of events) await deleteEvent(id, e.id);
+  } else {
+    mem.delete(id);
+  }
+  return events.length;
+}
+
 export async function deleteEvent(brandId: string, id: string): Promise<void> {
   if (adminConfigured && adminDb) {
     await adminDb.collection("results").doc(resultDocKey(brandId, id)).delete();
