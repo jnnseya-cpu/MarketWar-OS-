@@ -10,6 +10,7 @@ import { Bell, Check, Fingerprint, KeyRound, Loader2, Lock, Shield, ShieldCheck,
 import { PageHeader, Pill } from "@/components/ui";
 import AccountCard from "@/components/AccountCard";
 import DeleteAccount from "@/components/DeleteAccount";
+import DataRights from "@/components/DataRights";
 import EmergencyStop from "@/components/EmergencyStop";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -226,21 +227,7 @@ export default function SettingsPage() {
               </li>
             </ul>
           </div>
-          <div className="card p-5">
-            <h2 className="mb-2 font-display font-bold text-white">Your data, your rights</h2>
-            <p className="mb-3 text-xs text-slate-400">
-              Export or erase everything the OS holds about your business. Erasure propagates everywhere — including
-              analytics — under the GDPR erasure API.
-            </p>
-            <div className="flex gap-2">
-              <button type="button" className="rounded-lg border border-ink-700 px-3.5 py-2 text-xs font-bold text-slate-200 transition hover:border-emerald-500/50">
-                Export my data
-              </button>
-              <button type="button" className="rounded-lg border border-rose-500/30 px-3.5 py-2 text-xs font-bold text-rose-300 transition hover:border-rose-500/60">
-                Request erasure
-              </button>
-            </div>
-          </div>
+          <DataRights brandId={activeBrand?.id ?? null} />
         </div>
       </div>
 

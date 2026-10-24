@@ -67,7 +67,24 @@ export default function AcquisitionPage() {
 
   const target = GTM_TARGETS.find((t) => t.id === targetId)!;
 
-  if (!brandId) return <p className="text-sm text-slate-400">Pick a brand to run acquisition for.</p>;
+  // THE EMPTY STATE KEEPS THE HEADING. It used to return a bare <p>, which
+  // made this the one page in 95 that rendered with no <h1> at all — found by
+  // crawling every route in a real browser, not by reading the file. A page
+  // with no heading has no landmark for a screen reader, nothing for a crawler
+  // to title it by, and tells a first-time visitor nothing about where they
+  // are: before a brand exists, this is the state EVERY new customer sees.
+  if (!brandId) {
+    return (
+      <div>
+        <PageHeader
+          kicker="Acquisition run"
+          title="How many people did we actually ask?"
+          subtitle="Named businesses, the message each one was sent, and what came back."
+        />
+        <p className="text-sm text-slate-400">Pick a brand to run acquisition for.</p>
+      </div>
+    );
+  }
 
   return (
     <div>

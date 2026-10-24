@@ -11329,3 +11329,227 @@ routes against production. No browser pass across viewports. The 12 failing test
 are unchanged and remain the crawler/audit set that needs DNS this container does
 not have. The 42 unthrottled compute routes are measured and ceilinged, not
 throttled — that is bounded follow-up work, not a silent gap.
+
+---
+
+## 41. The two GDPR buttons that did nothing, and the register that now answers for all 91 stores (§169, 2026-10-24)
+
+Owner brief: MASTER PROMPT v2 — FULL-STACK LAUNCH AUTHORITY. Two minds, a
+Principal Engineer and a novice on a mid-range Android over slow 3G; mandatory
+gates; *"Fix, don't describe"*; *"placeholder functionality presented as
+operational"* forbidden; §6.15 requiring a data-subject erasure to be **executed
+for real**, because *"a privacy page is not compliance."*
+
+### What the audit's own instrument found, which no test and no build could
+
+`npm run check:controls` — written for this audit — asks of every control in 88
+components and 97 pages whether it has anywhere to go. Three findings. The two
+that matter were on the Settings page, under this copy:
+
+> *"Export or erase everything the OS holds about your business. Erasure
+> propagates everywhere — including analytics — under the GDPR erasure API."*
+
+**There was no erasure API. There was no export. There was nothing anywhere that
+could enumerate what the platform holds.** Both buttons had no `onClick`, no
+`type="submit"` and no form: a person exercising a right the law gives them
+pressed a control that did nothing, got no feedback, and was told by the page
+that the propagation had happened. Under UK GDPR Art. 12(3) the controller owes a
+response within one month and the codebase could not have produced one.
+
+This is the worst class of defect this platform can ship. Not a missing feature
+— a **false claim about a legal guarantee, on the surface where the person
+exercises that right.**
+
+### The hard part was never the delete — it was knowing what we hold
+
+Ninety Firestore collections, written by sixty backend modules. A hand-written
+list of them is stale the day the ninety-first appears, **silently and in the
+direction that matters**, because an export that misses a store still looks like
+a success and an erasure that misses one still prints a receipt. That is
+recurring defect #1 (a value that never gets carried across a boundary) wearing
+a compliance hat.
+
+So completeness is **enforced, not asserted**. `scripts/check-data-register.mjs`
+(in `verify`) fails when the backend touches a collection the register does not
+declare, when the register declares one nothing writes, and when a collection
+name is built from a runtime value the gate cannot resolve — because an
+unresolvable name means the gate has stopped being able to see the truth, which
+is worse than a missing entry. **90 collections found, all 91 declared. Both
+mutants killed** (dropping `contacts`; inventing `ghost_store`).
+
+### `src/backend/privacy.ts` — the register, and what the law does with each store
+
+Per store: what it holds in plain English, whether it holds personal data, how it
+is reachable from a brand (`field` / `docId` / `docIdPrefix` / `unreachable` with
+the reason), and what erasure may do to it. **53 brand-scoped, 38 unreachable,
+56 erased, 1 pseudonymised, 34 retained on a stated basis.**
+
+Three things the law does not let us simply delete, recorded against the store
+rather than decided in the moment:
+
+- **A SUPPRESSION LIST.** Erasing an unsubscribe record would let the platform
+  mail that person again — deleting the evidence of an objection defeats the
+  objection (Art. 21). `email_suppressions`, `contact_suppressions` and
+  `newsletter_optouts` are **retained**, and the driver proves the unsubscribe
+  survives the erasure.
+- **A FINANCIAL RECORD.** Six years under UK tax law and anti-fraud duty
+  (Art. 17(3)(b)) — commission accruals, payouts, clawbacks, wallets, float.
+- **A SECURITY AND AUDIT TRAIL.** An audit log the audited party can delete is
+  not an audit log.
+
+Plus one third-party case: **`likeness_consents` is retained because the person
+depicted is not the person asking.** Destroying the evidence that a face was
+used with permission removes the only defence to their complaint.
+
+### What it cannot reach, said out loud instead of counted as a clean sweep
+
+38 stores are keyed by something other than a brand — an account uid, a creator
+id, a recipient address, a hashed IP. Every export and every receipt lists each
+one **with its reason**. The sharpest is `email_sends`: it holds a recipient
+address and **no brand id**, so a brand-scoped erasure cannot find it. Recorded
+in the register, in the receipt, and in §Gaps below — not quietly omitted.
+
+### The "anonymised" line was true of nothing, and the driver caught it
+
+The register first said: keep the delivery events, strip the address. The generic
+implementation deleted the field. Two things wrong, and the receipt reported
+success for both:
+
+1. **The address is in the document id** — `email_events` keys rows
+   `brandId::type::email::at`, so clearing the field leaves the address in the
+   primary key. That is a rename, not an anonymisation.
+2. **It would have broken the numbers the store is kept for** — `eventStats`
+   counts recipients, not pixel loads, and `sentUnique` is the size of a set of
+   addresses. Blank them all and every recipient collapses into one, so every
+   open rate **on the platform** reads as impossible and is withheld, for every
+   brand, because the ledger is shared.
+
+`pseudonymiseBrandEvents` replaces the address with a stable hash of itself and
+**moves** the document to a new id. Unique counts survive, the address does not,
+and a second run rewrites nothing. Wired as a module override because the
+generic field-delete is wrong for any store whose key carries the identifier.
+
+### And then my own erasure reported success over data it never touched
+
+Found by probing rather than reasoning: store one revenue event and one inbound
+reply, erase the brand, read the receipt, read the store again. **The receipt
+said `erased, 0 documents` and `listEvents` still returned the event.** The
+first version swept Firestore generically, so with no database configured —
+the zero-config mode this platform promises always works — it removed nothing
+and reported success. Zero was a true count of what a Firestore sweep deleted
+and a false account of what happened to the data.
+
+That is the defect this whole file exists to prevent, reintroduced by me, in
+the module that answers a statutory request. Fixed in both directions: the four
+stores holding the plainest personal data each own a brand-scoped eraser that
+works with or without a database — `clearContacts`, **`clearEvents`**,
+**`clearInbound`** (there was no way to delete a customer's replies at all) and
+**`clearPages`** — and every other store with no eraser and no database is
+reported **skipped with the reason**, never erased. `hasModuleEraser` is
+exported so the invariant can be checked from outside.
+
+Two tests, because one was not enough: **no store the export can still read may
+be reported as erased**, and — the half that test cannot see, since a store with
+no reader shows nothing either way — **with no database, a store without an
+in-memory eraser must be reported skipped.** Both mutants killed; the second
+survived the first test, which is why the second test exists.
+
+### Account deletion was leaving every brand's data behind
+
+`DeleteAccount` deleted the Firebase Auth user and said in a comment that
+*"server-side purge of Firestore/Storage data runs via the account.deletion
+webhook/Cloud Function"*. **No such function exists** — `firebase.json` declares
+rules and indexes only, and there are no Cloud Functions in the repository at
+all. So the account vanished and the data stayed, now unreachable, because the
+one credential that could authorise its deletion had just been destroyed.
+
+The order is reversed: the data goes **first**, through `/api/privacy`, brand by
+brand, while the session still authorises it. A brand whose erasure fails is
+named and **the account is not deleted**.
+
+### The third dead control: a Connect button with a fuse in it
+
+The Integration Hub renders a blue "Connect" when `connectIsLive(provider)` is
+true, and that button had no handler. It was unreachable only because
+`LIVE_CONNECT` happened to be an empty `Set` — so **adding one provider name,
+which reads like turning a connector on, would have shipped a dead Connect
+button to every tenant.** Liveness is now a path, not a claim: `CONNECT_START`
+maps provider → route, `connectIsLive` is derived from it, `connectStart` is
+carried across the API boundary, and the UI renders an anchor to it. No path, no
+control — the dead state is unrepresentable.
+
+### Verification
+
+- `tests/privacy.test.mjs` — **16 tests**, naming each legal invariant
+  explicitly, because a suppression list flipped to "erase" would pass
+  typecheck, pass the completeness gate and pass the driver.
+- `npm run drive:privacy` — **27 proven / 0 broken**, through the real route
+  handlers: contacts stored through the contacts API, exported, an erasure
+  previewed and **proven to have changed nothing**, an unconfirmed erasure
+  refused, the confirmed one run, the contacts gone, the unsubscribe still there,
+  and the address surviving **only** in the suppression list.
+- **Mutants:** suppression → erase, killed by two tests. A per-row random hash
+  (which destroys unique counts) **survived first** — with one send each, two
+  random hashes still look like two recipients, so the test could not see the
+  property it claimed; three sends to two people kills it.
+
+### Four faults in my own instruments, found the same way
+
+- `check-dead-controls.mjs` read **`<button>` inside a comment** as code,
+  including the comment describing the repair. Comments are blanked before
+  matching now, with strings tracked so `https://` survives. All four patterns
+  still caught on a planted mutant.
+- `drive-route-crawl.mjs` reported 79 pages with "Failed to load resource" and
+  **could not say what had failed** — Chromium strips the URL from the console
+  text. It reads the network now: failed requests and 4xx/5xx by URL, split
+  three ways into **ours** (a defect), **auth-refused** (the guard working on a
+  signed-out crawler) and **outbound-blocked** (this container's missing DNS).
+- `drive-privacy.mjs` reported three assertions as **PROVEN while the route was
+  answering 503** — "the export no longer contains the address" passes
+  beautifully when there is no export. Every assertion is gated on the response
+  being what it claims to describe.
+- The crawler read the commit from a `GIT_SHA` environment variable that the env
+  catalogue test correctly flagged as uncatalogued. It reads `git rev-parse
+  HEAD` now — better evidence and one less variable.
+
+### The cast gate caught three unverified casts in this work, and all three were real
+
+`check:casts` refused the first version: a stored document cast to `EmailEvent`
+(now read through `eventFromStored`, which checks it, so a malformed row is left
+alone instead of being rewritten into an id built from `undefined`), and two
+`res.json() as T` casts (now a validating request-body read and a
+`receiptFromWire` reader, so a missing count renders as zero instead of throwing
+on `undefined.map`). **153 casts, unchanged — it only goes down.**
+
+### Also fixed
+
+`/dashboard/acquisition`'s empty state returned a bare `<p>`, making it the one
+page in 95 with no `<h1>` — no landmark for a screen reader, nothing for a
+crawler, and **that is the state every new customer sees first**. It keeps its
+heading now. Found by the crawl, not by reading.
+
+### NOT PROVEN, and it must not be read as proven
+
+No Firebase credentials exist here, so persistence was the in-memory store: the
+**Firestore write paths are unexercised** — the batch delete, the documentId
+range query and the pseudonymiser's document move. The brand-ownership refusal
+is unexercised because there are no accounts to be a stranger with. What IS
+proven, and was discovered by the first run of the driver, is that **with no
+credentials in production both the export and the erasure refuse with 503 rather
+than serving** — `resolveBrandAccess` fails closed.
+
+### §Gaps added
+
+- **`email_sends` carries a recipient address and no brand id**, so a
+  brand-scoped erasure cannot reach it. Register and receipt both say so.
+  Resolution: add `brandId` to the row. Needs its own pass over the send path.
+- **Account-scoped stores** (`analytics_consent`, `digest_subscriptions`,
+  `memberships`, `invites`) are erased with the account rather than with a
+  brand. `DeleteAccount` now sweeps every brand first, but an account-level
+  erasure endpoint does not exist. Recommended resolution: a second register
+  dimension keyed by uid.
+- **`likeness_consents` conflict, recorded rather than silently resolved:**
+  the brand's erasure right and the depicted person's evidence of consent point
+  opposite ways. Kept, on the basis that the brand is not the data subject whose
+  likeness it protects. If the owner wants it erased on brand request, that is
+  his instruction to give and it belongs in writing.

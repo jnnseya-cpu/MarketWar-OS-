@@ -176,14 +176,41 @@ export function provisioningOf(provider: IntegrationProvider): ProvisioningMeta 
 //   Publish Center (a genuine per-brand OAuth) — that connect is live there.
 // • No ad-account / payments / store / calendar / CRM-import OAuth is wired yet,
 //   so none of those are listed. They stay fully usable via manual mode.
-const LIVE_CONNECT = new Set<IntegrationProvider>([
-  // (empty for user_connect today — ad/payment/store/calendar/import OAuth is
-  //  on the roadmap; social publishing is handled by the platform Zernio key,
-  //  which is a `platform` provider and already reports its own live state.)
-]);
+// WHERE A ONE-CLICK CONNECT ACTUALLY STARTS. A provider is "live" if and only
+// if it has a route here that begins a real authorisation flow.
+//
+// THIS USED TO BE A BARE SET OF NAMES, AND THAT WAS A TRAP WITH A FUSE IN IT.
+// The Integration Hub renders a live-looking "Connect" button when
+// `connectIsLive` is true — and that button had no handler. The set was empty,
+// so nothing reached it and nothing was visibly broken; the day anybody added a
+// provider name here to "turn the connector on", a blue Connect button would
+// have appeared on every tenant's Integration Hub and done absolutely nothing
+// when pressed. One line, in the file that exists to stop exactly that, and the
+// failure would have looked like a feature.
+//
+// So liveness is no longer a claim about a provider. It is the path that starts
+// the flow, the UI renders a link to that path, and a provider with no path
+// cannot be marked live — there is nothing to list.
+const CONNECT_START: Partial<Record<IntegrationProvider, string>> = {
+  // (none for user_connect today — ad/payment/store/calendar/import OAuth is on
+  //  the roadmap; social publishing is handled by the platform Zernio key,
+  //  which is a `platform` provider and already reports its own live state.
+  //  Google Search Console and Business Profile connect through the Google
+  //  flow at /api/google/connect, which is reached from the SEO surfaces
+  //  rather than from the Hub, so neither is listed here.)
+};
 
 export function connectIsLive(provider: IntegrationProvider): boolean {
-  return LIVE_CONNECT.has(provider);
+  return Boolean(CONNECT_START[provider]);
+}
+
+/**
+ * Where the one-click connect for this provider starts, or null when there is
+ * no such flow. The Hub renders the button from THIS, so a live-looking
+ * control cannot exist without somewhere for it to go.
+ */
+export function connectStartPath(provider: IntegrationProvider): string | null {
+  return CONNECT_START[provider] ?? null;
 }
 
 // Interchangeable provider pools — the anti-dependency mechanism. Every
@@ -234,6 +261,14 @@ export type IntegrationStatus = {
   adminConfigured: boolean;   // admin-only signal: is the platform key in place?
   userStatus: "ready" | "connect" | "manual"; // what the tenant sees
   connectLive: boolean;       // is the one-click connect flow ACTUALLY wired today?
+  /**
+   * WHERE that one-click connect starts, or null. Carried across this boundary
+   * on purpose: the Hub renders the button from this value, so a provider with
+   * no start path cannot produce a live-looking control. `connectLive` on its
+   * own told the UI a button should appear and nothing about where it should
+   * go, and the button it produced did nothing.
+   */
+  connectStart: string | null;
   pool?: string;              // interchangeable provider pool (anti-dependency)
 };
 
@@ -259,6 +294,7 @@ export function integrationStatus(): { integrations: IntegrationStatus[]; connec
       provisioning: p.provisioning, billing: p.billing, userAction: p.userAction, reason: p.reason,
       platformManaged, userDoesNothing: platformManaged, adminConfigured, userStatus,
       connectLive: connectIsLive(m.provider),
+      connectStart: connectStartPath(m.provider),
       pool: poolOf(m.provider),
     };
   });

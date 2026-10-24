@@ -65,6 +65,33 @@ export async function saveInbound(m: Omit<InboundMessage, "id" | "read"> & { id?
   return msg;
 }
 
+/**
+ * Remove every inbound message for a brand — the erasure path.
+ *
+ * These are REPLIES FROM REAL PEOPLE: a sender address, a subject and a body,
+ * which is the most plainly personal data in the platform after the contact
+ * list itself. There was no way to delete them at all, so a brand-scoped
+ * erasure walked past them and the receipt still reported success.
+ *
+ * Returns how many messages went.
+ */
+export async function clearInbound(brandId: string): Promise<number> {
+  const id = (brandId || "").trim();
+  if (!id) return 0;
+  if (adminConfigured && adminDb) {
+    const snap = await adminDb.collection("inbound_messages").where("brandId", "==", id).limit(5000).get();
+    for (let i = 0; i < snap.docs.length; i += 400) {
+      const batch = adminDb.batch();
+      for (const d of snap.docs.slice(i, i + 400)) batch.delete(d.ref);
+      await batch.commit();
+    }
+    return snap.size;
+  }
+  const n = (mem.get(id) ?? []).length;
+  mem.delete(id);
+  return n;
+}
+
 export async function listInbound(brandId: string, limit = 200): Promise<InboundMessage[]> {
   if (adminConfigured && adminDb) {
     const snap = await adminDb.collection("inbound_messages").where("brandId", "==", brandId).limit(limit).get();

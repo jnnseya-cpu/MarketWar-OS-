@@ -50,6 +50,26 @@ export async function listPages(brandId: string): Promise<StoredLandingPage[]> {
   return [...mem.values()].filter((p) => p.brandId === brandId);
 }
 
+/**
+ * Remove every landing page a brand published — the erasure path.
+ *
+ * Returns how many pages went. Same reason as `clearEvents` in `ledger.ts`: a
+ * generic Firestore sweep removes nothing when persistence is unconfigured, and
+ * an erasure receipt that reports success over data still in the process is a
+ * false statement about a statutory right.
+ */
+export async function clearPages(brandId: string): Promise<number> {
+  const id = (brandId || "").trim();
+  if (!id) return 0;
+  const pages = await listPages(id);
+  if (adminConfigured && adminDb) {
+    for (const p of pages) await deletePage(id, p.slug);
+  } else {
+    for (const p of pages) mem.delete(key(id, p.slug));
+  }
+  return pages.length;
+}
+
 export async function deletePage(brandId: string, slug: string): Promise<void> {
   if (adminConfigured && adminDb) {
     await adminDb.collection("landing_pages").doc(docId(brandId, slug)).delete();

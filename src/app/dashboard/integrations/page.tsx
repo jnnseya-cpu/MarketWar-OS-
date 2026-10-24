@@ -14,7 +14,7 @@ import { authedFetch } from "@/frontend/api-client";
 type Integration = {
   provider: string; label: string; category: string; dependencyLevel: string; costMode: string; accelerates: string; status: "connected" | "disconnected"; manualFallback: string[];
   provisioning: "platform" | "user_connect" | "manual_only"; billing: "included" | "acu_metered" | "user_billed_direct";
-  userAction: string; reason: string; platformManaged: boolean; userDoesNothing: boolean; adminConfigured: boolean; userStatus: "ready" | "connect" | "manual"; connectLive: boolean; pool?: string;
+  userAction: string; reason: string; platformManaged: boolean; userDoesNothing: boolean; adminConfigured: boolean; userStatus: "ready" | "connect" | "manual"; connectLive: boolean; connectStart: string | null; pool?: string;
 };
 type Data = {
   integrations: Integration[]; connectedCount: number; platformManagedCount: number; userConnectCount: number; liveConnectCount: number; roadmapConnectCount: number; note: string;
@@ -133,10 +133,20 @@ export default function IntegrationsPage() {
                             ) : i.userStatus === "connect" ? (
                               i.status === "connected" ? (
                                 <Pill tone="good"><Cpu className="mr-1 inline h-3 w-3" />Connected</Pill>
-                              ) : i.connectLive ? (
-                                <button className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-1 text-[11px] font-bold text-sky-300 hover:bg-sky-500/25">
+                              ) : i.connectStart ? (
+                                // AN ANCHOR, NOT A BUTTON, AND IT COMES FROM THE
+                                // DATA. This was a <button> with no handler: a
+                                // live-looking Connect that did nothing when
+                                // pressed. It was unreachable only because the
+                                // live-connect list happened to be empty, so
+                                // adding one provider name would have shipped it
+                                // to every tenant. Rendering from the start path
+                                // makes the dead state impossible — no path, no
+                                // control.
+                                <a href={`${i.connectStart}${i.connectStart.includes("?") ? "&" : "?"}provider=${encodeURIComponent(i.provider)}`}
+                                   className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-1 text-[11px] font-bold text-sky-300 hover:bg-sky-500/25">
                                   <MousePointerClick className="h-3 w-3" /> Connect
-                                </button>
+                                </a>
                               ) : (
                                 // Honest: one-click OAuth for this connector isn't wired yet.
                                 // Never show a live-looking "Connect" that does nothing — say so,
