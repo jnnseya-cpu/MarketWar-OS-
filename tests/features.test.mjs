@@ -11843,9 +11843,26 @@ test("adsumo-gap routes: brand-scoped, and free work is never metered", () => {
   const avatarRoute = readFileSync(new URL("../src/app/api/avatars/route.ts", import.meta.url), "utf8");
   // Gates, then wallet, then render. Any other order either charges for a
   // refusal or makes the platform pay for a render the customer cannot afford.
-  const gateAt = avatarRoute.indexOf("await gateAvatar(request)");
-  const meterAt = avatarRoute.indexOf("await meterAction(access");
-  const renderAt = avatarRoute.indexOf("await renderAvatar(request)");
+  // SCOPED TO THE RENDER ACTION, AND IT TOOK TWO GOES.
+  //
+  // This read the FIRST `meterAction(access` in the whole file. That was
+  // unambiguous while the route had one metered action, and stopped being so
+  // the moment translation was added — its metering sits above the render
+  // block, so the guard compared the wrong call and failed on correct code.
+  //
+  // My first repair named the exact render call instead, which passed the
+  // suite AND let a mutant through: inserting a DIFFERENT charge above the
+  // gate left the named call where it was, so the guard saw nothing. Narrowing
+  // a check until it matches one literal is how a guard stops guarding.
+  //
+  // So it is scoped by SECTION and kept broad inside it: in the render path,
+  // NOTHING may touch the wallet before the refusals are checked. Translation
+  // meters without calling `gateAvatar` on purpose — the video it translates
+  // was gated when it was rendered — which is why the section matters.
+  const renderSection = avatarRoute.slice(avatarRoute.indexOf('if (action !== "render")'));
+  const gateAt = renderSection.indexOf("await gateAvatar(request)");
+  const meterAt = renderSection.indexOf("await meterAction(access");
+  const renderAt = renderSection.indexOf("await renderAvatar(request)");
   assert.ok(gateAt > 0 && meterAt > gateAt, "the wallet must not be touched before the refusals are checked");
   assert.ok(renderAt > meterAt, "the provider must not be called before the wallet");
   // And a provider failure refunds itself rather than pointing at support.
@@ -11853,8 +11870,17 @@ test("adsumo-gap routes: brand-scoped, and free work is never metered", () => {
   // Billed per MINUTE, because every avatar provider bills by duration. A flat
   // per-render charge overcharges a short clip and loses money on a long one —
   // and the second of those breaches the margin floor without anyone noticing.
-  assert.match(avatarRoute, /meterAction\(access, "avatar", minutes\)/);
+  assert.match(renderSection, /meterAction\(access, "avatar", minutes\)/);
   assert.ok(!/meterAction\(access, "video"/.test(avatarRoute), "an avatar minute is not a £0.10 generated clip and must not be priced as one");
+  // TRANSLATION IS ITS OWN PRODUCT AND ITS OWN PRICE. Dubbing re-voices the
+  // audio and leaves the mouth speaking the original language; this re-renders
+  // the mouth. Billing the dearer one at the cheaper rate breaches the margin
+  // floor silently, so the route must meter `avatar_translate` and nothing else.
+  assert.match(avatarRoute, /meterAction\(access, "avatar_translate", source\.minutes\)/);
+  assert.ok(!/meterAction\(access, "dub"/.test(avatarRoute), "a lip-synced translation is not a dub and must not be priced as one");
+  // And a language the provider refuses is refunded, one language at a time.
+  assert.match(avatarRoute, /creditAcus\(access\.uid, perLanguage\)/);
+
   // The provider's key is never returned to the browser.
   assert.ok(!/envKey/.test(avatarRoute.split("export async function POST")[0].replace(/\/\/.*/g, "")), "a provider key must never leave the server");
 });

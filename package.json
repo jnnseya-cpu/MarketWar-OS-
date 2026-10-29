@@ -65,6 +65,7 @@
     "drive:crawl": "node --import tsx scripts/drive-route-crawl.mjs",
     "drive:privacy": "node --import tsx scripts/drive-privacy.mjs",
     "drive:keys": "node --import tsx scripts/drive-admin-keys.mjs",
+    "drive:presenter": "node --import tsx scripts/drive-presenter.mjs",
     "drive:pages": "node --import tsx scripts/drive-feature-pages.mjs"
   },
   "dependencies": {

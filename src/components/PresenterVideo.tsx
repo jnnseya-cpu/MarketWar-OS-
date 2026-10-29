@@ -21,7 +21,14 @@ type Consent = {
   grantedAt: string; expiresAt: string; revokedAt?: string;
   live: boolean; daysLeft: number;
 };
-type Job = { ok?: boolean; mode?: string; provider?: string; jobRef?: string | null; brief?: string; note?: string; disclosure?: string; charged?: boolean };
+type Job = {
+  ok?: boolean; mode?: string; provider?: string; jobRef?: string | null; brief?: string;
+  note?: string; disclosure?: string; charged?: boolean;
+  jobId?: string; status?: "rendering" | "ready" | "failed"; videoUrl?: string | null;
+};
+type AvatarChoice = { id: string; name: string; kind: "avatar" | "photo"; gender?: string; previewImage?: string };
+type VoiceChoice = { id: string; name: string; language?: string; gender?: string };
+type Translation = { jobId: string; lang: string; status: string; videoUrl: string | null; note?: string };
 
 const EVIDENCE = [
   { id: "signed-release", label: "A signed release I hold" },
@@ -42,6 +49,22 @@ export default function PresenterVideo() {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // The roster — pick a face instead of pasting a provider id.
+  const [avatars, setAvatars] = useState<AvatarChoice[]>([]);
+  const [voices, setVoices] = useState<VoiceChoice[]>([]);
+  const [rosterNote, setRosterNote] = useState("");
+  const [avatarId, setAvatarId] = useState("");
+  const [voiceId, setVoiceId] = useState("");
+  const [aspect, setAspect] = useState<"9:16" | "16:9" | "1:1">("9:16");
+  const [voiceSource, setVoiceSource] = useState<"provider" | "cloned">("provider");
+  const [elevenVoiceId, setElevenVoiceId] = useState("");
+
+  // Translation
+  const [languages, setLanguages] = useState<string[]>([]);
+  const [pickedLangs, setPickedLangs] = useState<string[]>([]);
+  const [translateAcu, setTranslateAcu] = useState(0);
+  const [translations, setTranslations] = useState<Translation[]>([]);
 
   // The consent form
   const [cName, setCName] = useState("");
@@ -67,6 +90,69 @@ export default function PresenterVideo() {
   }, [activeBrand?.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // The roster is brand-independent, so it loads once and is cached server-side.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const r = await authedFetch("/api/avatars?roster=1");
+        const d = await r.json();
+        if (!live || !r.ok) return;
+        setAvatars(Array.isArray(d?.avatars) ? d.avatars : []);
+        setVoices(Array.isArray(d?.voices) ? d.voices : []);
+        setRosterNote(typeof d?.note === "string" ? d.note : "");
+        setLanguages(Array.isArray(d?.translation?.languages) ? d.translation.languages : []);
+        setTranslateAcu(Number(d?.translation?.acuPerMinutePerLanguage) || 0);
+      } catch { /* the panel still renders without a roster */ }
+    })();
+    return () => { live = false; };
+  }, []);
+
+  // POLL THE RENDER UNTIL IT IS A VIDEO.
+  //
+  // This is the half that did not exist: the panel used to print the provider's
+  // job id and stop, so a paid render had to be collected from the provider's
+  // own dashboard. It stops polling the moment the job is ready or failed, and
+  // on unmount — a timer left running against a finished job is a request per
+  // three seconds for as long as the tab is open.
+  useEffect(() => {
+    if (!job?.jobId || job.status !== "rendering" || !activeBrand?.id) return;
+    let live = true;
+    const tick = async () => {
+      try {
+        const r = await authedFetch(`/api/avatars?brandId=${encodeURIComponent(activeBrand.id)}&jobId=${encodeURIComponent(job.jobId!)}`);
+        const d = await r.json();
+        if (!live || !r.ok) return;
+        if (d?.status && d.status !== "rendering") {
+          setJob((j) => ({ ...(j || {}), status: d.status, videoUrl: d.videoUrl ?? null, note: d.note || j?.note }));
+        }
+      } catch { /* the next tick tries again */ }
+    };
+    const id = setInterval(tick, 3000);
+    void tick();
+    return () => { live = false; clearInterval(id); };
+  }, [job?.jobId, job?.status, activeBrand?.id]);
+
+  // The same for each translation in flight.
+  useEffect(() => {
+    const pending = translations.filter((t) => t.status === "rendering");
+    if (!pending.length || !activeBrand?.id) return;
+    let live = true;
+    const id = setInterval(async () => {
+      for (const t of pending) {
+        try {
+          const r = await authedFetch(`/api/avatars?brandId=${encodeURIComponent(activeBrand.id)}&translationId=${encodeURIComponent(t.jobId)}`);
+          const d = await r.json();
+          if (!live || !r.ok) continue;
+          if (d?.status && d.status !== "rendering") {
+            setTranslations((all) => all.map((x) => (x.jobId === t.jobId ? { ...x, status: d.status, videoUrl: d.videoUrl ?? null, note: d.note } : x)));
+          }
+        } catch { /* next tick */ }
+      }
+    }, 4000);
+    return () => { live = false; clearInterval(id); };
+  }, [translations, activeBrand?.id]);
 
   const post = async (body: Record<string, unknown>) => {
     if (!activeBrand?.id) { setError("Pick a brand first."); return null; }
@@ -101,8 +187,30 @@ export default function PresenterVideo() {
   }
 
   async function render() {
-    const d = await post({ action: "render", script, avatarKind, personName: personName || undefined });
-    if (d) setJob(d);
+    const d = await post({
+      action: "render", script, avatarKind,
+      personName: personName || undefined,
+      avatarId: avatarId || undefined,
+      voiceId: voiceSource === "provider" ? (voiceId || undefined) : undefined,
+      voiceSource,
+      elevenVoiceId: voiceSource === "cloned" ? (elevenVoiceId || undefined) : undefined,
+      aspect,
+    });
+    if (d) { setJob(d); setTranslations([]); }
+  }
+
+  async function translate() {
+    if (!job?.jobId || !pickedLangs.length) return;
+    const d = await post({ action: "translate", jobId: job.jobId, languages: pickedLangs });
+    if (!d) return;
+    const started: Translation[] = (Array.isArray(d.started) ? d.started : []).map((t: Record<string, unknown>) => ({
+      jobId: String(t.jobId || ""), lang: String(t.lang || ""), status: String(t.status || "rendering"),
+      videoUrl: typeof t.videoUrl === "string" ? t.videoUrl : null,
+    }));
+    setTranslations((all) => [...all, ...started]);
+    if (Array.isArray(d.refused) && d.refused.length) {
+      setError(d.refused.map((r: Record<string, unknown>) => `${r.lang}: ${r.error}`).join(" · "));
+    }
   }
 
   // The same 150 words per minute the server bills at, so the number quoted
@@ -179,7 +287,70 @@ export default function PresenterVideo() {
             <input className="input" value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="Must match a consent on record" />
           </div>
         )}
+        <div>
+          <label className="label">Shape</label>
+          <select className="input" value={aspect} onChange={(e) => setAspect(e.target.value as "9:16" | "16:9" | "1:1")}>
+            <option value="9:16">Vertical 9:16 — Reels, TikTok, Shorts</option>
+            <option value="16:9">Landscape 16:9 — YouTube, a page, an email</option>
+            <option value="1:1">Square 1:1 — feed posts and square ads</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Voice</label>
+          <select className="input" value={voiceSource} onChange={(e) => setVoiceSource(e.target.value as "provider" | "cloned")}>
+            <option value="provider">One of the provider&apos;s voices</option>
+            <option value="cloned">My own cloned voice (ElevenLabs)</option>
+          </select>
+        </div>
       </div>
+
+      {/* THE FACE PICKER. This used to be a free-text field for a provider id,
+          which meant the one thing this screen could not do was let somebody
+          choose a presenter — and a wrong paste renders a stranger reading
+          their script, billed. */}
+      {avatars.length > 0 && (
+        <div className="mt-3">
+          <label className="label">Who presents it</label>
+          <div className="grid max-h-56 grid-cols-3 gap-2 overflow-y-auto rounded-lg border border-white/10 bg-ink-900/40 p-2 sm:grid-cols-5">
+            {avatars.map((a) => (
+              <button
+                key={a.id} type="button" onClick={() => setAvatarId(a.id === avatarId ? "" : a.id)}
+                className={`rounded-lg border p-1 text-left transition ${a.id === avatarId ? "border-fuchsia-500/60 bg-fuchsia-500/10" : "border-white/10 hover:border-white/25"}`}
+                title={a.name}
+              >
+                {a.previewImage
+                  // eslint-disable-next-line @next/next/no-img-element -- a provider CDN thumbnail, not a bundled asset
+                  ? <img src={a.previewImage} alt={a.name} className="h-20 w-full rounded object-cover" loading="lazy" />
+                  : <div className="flex h-20 w-full items-center justify-center rounded bg-ink-850 text-[10px] text-slate-500">no preview</div>}
+                <p className="mt-1 truncate text-[10px] text-slate-300">{a.name}</p>
+              </button>
+            ))}
+          </div>
+          {!avatarId && <p className="mt-1 text-[11px] text-amber-300">Pick a presenter — without one the provider refuses the render.</p>}
+        </div>
+      )}
+      {avatars.length === 0 && rosterNote && <p className="mt-3 text-[11px] text-slate-500">{rosterNote}</p>}
+
+      {voiceSource === "provider" && voices.length > 0 && (
+        <div className="mt-3">
+          <label className="label">Which voice</label>
+          <select className="input" value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
+            <option value="">The presenter&apos;s default voice</option>
+            {voices.map((v) => (
+              <option key={v.id} value={v.id}>{v.name}{v.language ? ` · ${v.language}` : ""}{v.gender ? ` · ${v.gender}` : ""}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      {voiceSource === "cloned" && (
+        <div className="mt-3">
+          <label className="label">ElevenLabs voice id</label>
+          <input className="input" value={elevenVoiceId} onChange={(e) => setElevenVoiceId(e.target.value)} placeholder="Leave blank for the default voice" />
+          <p className="mt-1 text-[11px] text-slate-500">
+            The speech is generated in your own voice, hosted by us, and the presenter lip-syncs to it — the provider never receives the voice model. A cloned voice of a real person needs a VOICE consent on record, not just a face one. Billed separately, per 1,000 characters.
+          </p>
+        </div>
+      )}
 
       <button className="btn-primary mt-4" onClick={render} disabled={busy || !script.trim()}>
         {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Working…</> : <><Video className="h-4 w-4" /> {configured ? "Render the presenter" : "Get the shot brief"}</>}
@@ -203,7 +374,65 @@ export default function PresenterVideo() {
               <CopyOut text={job.brief} filename="script.txt" label="Copy the script" />
             </>
           )}
-          {job.jobRef && <p className="text-xs text-slate-400">Provider job: <span className="font-mono">{job.jobRef}</span></p>}
+          {/* THE PLAYER. What this panel owed the customer all along: it used to
+              print the provider's job id as monospace text and stop, so a paid
+              render had to be fetched from the provider's own dashboard. */}
+          {job.status === "rendering" && (
+            <p className="flex items-center gap-2 text-xs text-slate-300">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Rendering. This takes a few minutes — the video appears here when it is done, and it is filed in your library.
+            </p>
+          )}
+          {job.status === "failed" && (
+            <p className="text-xs text-rose-300">{job.note || "The render failed and the ACUs have been put back."}</p>
+          )}
+          {job.status === "ready" && job.videoUrl && (
+            <div className="space-y-2">
+              <video src={job.videoUrl} controls playsInline className="w-full max-w-sm rounded-lg border border-white/10" />
+              <div className="flex flex-wrap gap-2">
+                <a href={job.videoUrl} download className="btn-secondary !py-1.5 !text-xs">Download the MP4</a>
+              </div>
+
+              {/* TRANSLATION — the same video, mouth re-rendered per language. */}
+              {languages.length > 0 && (
+                <div className="mt-3 rounded-lg border border-white/10 bg-ink-900/40 p-3">
+                  <p className="text-xs font-semibold text-white">Say it in another language</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    The mouth is re-rendered to match, which is not the same as dubbing the audio. Billed per language, per minute{translateAcu ? ` — ${translateAcu * minutes} ACUs each` : ""}.
+                  </p>
+                  <select
+                    className="input mt-2" multiple size={4}
+                    value={pickedLangs}
+                    onChange={(e) => setPickedLangs(Array.from(e.target.selectedOptions).map((o) => o.value))}
+                  >
+                    {languages.map((l) => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button className="btn-secondary !py-1.5 !text-xs" onClick={translate} disabled={busy || !pickedLangs.length}>
+                      Translate into {pickedLangs.length || 0}
+                    </button>
+                    {pickedLangs.length > 0 && translateAcu > 0 && (
+                      <span className="text-[11px] text-slate-400">{translateAcu * minutes * pickedLangs.length} ACUs in total</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {translations.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {translations.map((t) => (
+                    <li key={t.jobId} className="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+                      <span className="font-semibold">{t.lang}</span>
+                      {t.status === "rendering" && <span className="text-slate-500">rendering…</span>}
+                      {t.status === "failed" && <span className="text-rose-300">{t.note || "failed — refunded"}</span>}
+                      {t.status === "ready" && t.videoUrl && <a href={t.videoUrl} className="text-fuchsia-300 underline" target="_blank" rel="noreferrer">open</a>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {job.jobRef && job.status !== "ready" && <p className="text-[10px] text-slate-600">Provider job: <span className="font-mono">{job.jobRef}</span></p>}
         </div>
       )}
 

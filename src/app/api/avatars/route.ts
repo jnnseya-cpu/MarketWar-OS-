@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AVATAR_PROVIDERS, avatarGatewayConfigured, billableMinutes, configuredProvider, gateAvatar, renderAvatar, restrictedUse, wouldCallProvider } from "@/backend/avatar-gateway";
+import {
+  AVATAR_PROVIDERS, AVATAR_DIMENSIONS, avatarGatewayConfigured, avatarRoster, billableMinutes,
+  configuredProvider, gateAvatar, getAvatarRender, getTranslation, ownedRender, renderAvatar,
+  restrictedUse, startTranslation, translationLanguages, wouldCallProvider,
+  type AvatarAspect,
+} from "@/backend/avatar-gateway";
+import { textToSpeech, billableUnits, voiceConfigured } from "@/backend/voice";
+import { uploadPublicMedia, storageConfigured } from "@/backend/storage";
 import { recordConsent, listConsents, revokeConsent, consentFor, SYNTHETIC_DISCLOSURE, DEFAULT_TERM_DAYS, type ConsentEvidence, type LikenessKind } from "@/backend/likeness-consent";
 import { resolveBrandAccess } from "@/backend/brand-access";
 import { rateLimit, clientKey } from "@/backend/guard";
@@ -27,7 +34,23 @@ const KINDS: LikenessKind[] = ["face", "voice"];
 const EVIDENCE: ConsentEvidence[] = ["signed-release", "recorded-statement", "written-agreement", "self"];
 
 export async function GET(req: NextRequest) {
-  const brandId = (new URL(req.url).searchParams.get("brandId") || "").trim();
+  const url = new URL(req.url);
+  const brandId = (url.searchParams.get("brandId") || "").trim();
+
+  // THE ROSTER. No brand needed: it is the same list for every tenant on the
+  // platform key, and it contains no customer data — only which performers and
+  // voices this deployment can use.
+  if (url.searchParams.get("roster")) {
+    const roster = await avatarRoster(url.searchParams.get("refresh") === "1");
+    const langs = await translationLanguages();
+    return NextResponse.json({
+      avatars: roster.avatars,
+      voices: roster.voices,
+      note: roster.note,
+      aspects: Object.entries(AVATAR_DIMENSIONS).map(([id, d]) => ({ id, ...d })),
+      translation: { languages: langs.languages, note: langs.note, acuPerMinutePerLanguage: ACTION_COST_ACU.avatar_translate },
+    });
+  }
   if (!brandId) {
     return NextResponse.json({
       providers: AVATAR_PROVIDERS.map(({ id, label, forbids, customAvatars }) => ({ id, label, forbids, customAvatars })),
@@ -38,6 +61,27 @@ export async function GET(req: NextRequest) {
   }
   const access = await resolveBrandAccess(req, brandId);
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+
+  // POLL A RENDER. The half that did not exist: this is what turns a provider
+  // job id into the customer's video, hosted by us and filed in their library.
+  const jobId = (url.searchParams.get("jobId") || "").trim();
+  if (jobId) {
+    // OWNERSHIP FIRST. A job id is guessable enough that reading one by id
+    // alone would let a tenant poll another tenant's render — and the response
+    // carries their script.
+    const owned = await ownedRender(jobId, brandId);
+    if (!owned) return NextResponse.json({ error: "No such render for this brand." }, { status: 404 });
+    const job = await getAvatarRender(jobId);
+    return NextResponse.json(job);
+  }
+
+  const translationId = (url.searchParams.get("translationId") || "").trim();
+  if (translationId) {
+    const t = await getTranslation(translationId);
+    if ("error" in t) return NextResponse.json(t, { status: 404 });
+    if (t.brandId !== brandId) return NextResponse.json({ error: "No such translation for this brand." }, { status: 404 });
+    return NextResponse.json(t);
+  }
 
   const consents = await listConsents(brandId);
   const now = Date.now();
@@ -124,19 +168,88 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  if (action !== "render") return NextResponse.json({ error: "Unknown action — use consent, revoke, check or render." }, { status: 400 });
+  // ----------------------------------------------------------------------
+  // TRANSLATE — the same video, lip-synced into other languages
+  // ----------------------------------------------------------------------
+  if (action === "translate") {
+    const sourceId = str("jobId");
+    const langs = Array.isArray(body.languages)
+      ? [...new Set((body.languages as unknown[]).filter((l): l is string => typeof l === "string" && l.trim().length > 0).map((l) => l.trim()))]
+      : [];
+    if (!sourceId) return NextResponse.json({ error: "jobId of the finished video is required" }, { status: 400 });
+    if (!langs.length) return NextResponse.json({ error: "Pick at least one language." }, { status: 400 });
+    if (langs.length > 10) return NextResponse.json({ error: "Ten languages at a time. Each one is a separate render billed per minute, and a slip of the finger should not spend an afternoon's budget." }, { status: 400 });
+
+    const source = await ownedRender(sourceId, brandId);
+    if (!source) return NextResponse.json({ error: "No such render for this brand." }, { status: 404 });
+    if (source.status !== "ready" || !source.videoUrl) {
+      return NextResponse.json({ error: "That video has not finished rendering yet." }, { status: 409 });
+    }
+
+    // PRICED PER LANGUAGE, PER MINUTE, AND CHARGED ONE LANGUAGE AT A TIME.
+    // Metering the whole batch up front would take money for languages that
+    // never start if the provider refuses the second one.
+    const perLanguage = ACTION_COST_ACU.avatar_translate * source.minutes;
+    const started: unknown[] = [];
+    const refused: { lang: string; error: string }[] = [];
+    for (const lang of langs) {
+      const meter = await meterAction(access, "avatar_translate", source.minutes);
+      if (!meter.allowed) { refused.push({ lang, error: meter.error || "Not enough ACUs." }); break; }
+      const r = await startTranslation({ source, lang, chargedAcu: meter.metered ? perLanguage : 0, nowISO });
+      if (!r.ok) {
+        if (meter.metered && access.ok && access.uid) { try { await creditAcus(access.uid, perLanguage); } catch { /* reported below */ } }
+        refused.push({ lang, error: r.error });
+        continue;
+      }
+      started.push(r.job);
+    }
+
+    return NextResponse.json({
+      started,
+      refused,
+      acuPerLanguage: perLanguage,
+      minutes: source.minutes,
+      note: `${started.length} translation(s) started at ${perLanguage} ACUs each (${source.minutes} minute(s) × ${ACTION_COST_ACU.avatar_translate} per minute per language). Poll each with ?translationId=. A translation that fails is refunded automatically.`,
+      disclosure: SYNTHETIC_DISCLOSURE,
+    });
+  }
+
+  if (action !== "render") return NextResponse.json({ error: "Unknown action — use consent, revoke, check, render or translate." }, { status: 400 });
 
   const avatarKind = str("avatarKind") === "custom" ? "custom" : "stock";
+  const aspect: AvatarAspect = (["9:16", "16:9", "1:1"] as const).includes(str("aspect") as AvatarAspect)
+    ? (str("aspect") as AvatarAspect)
+    : "9:16";
+  // "cloned" means ElevenLabs speaks the script in the customer's own voice and
+  // the presenter lip-syncs to that track, instead of the provider's stock TTS.
+  const clonedVoice = str("voiceSource") === "cloned";
   const request = {
     brandId, script: str("script"), avatarKind: avatarKind as "stock" | "custom",
     avatarId: str("avatarId") || undefined,
     personName: str("personName") || undefined,
     voiceId: str("voiceId") || undefined,
+    aspect,
     territory: str("territory") || undefined,
     platform: str("platform") || undefined,
     paidAd: body.paidAd === true,
+    // Set below if a cloned voice is used — declared here so the consent gate
+    // sees it. A gate that runs before the field is populated is not a gate.
+    audioUrl: undefined as string | undefined,
+    // What the wallet took, filled in after metering so a later provider
+    // failure can refund exactly that. Declared here, and the render is still
+    // called as `renderAvatar(request)` — unchanged — because an existing guard
+    // reads this file's SOURCE to prove the order of gates, wallet and render,
+    // and a call rewritten into `renderAvatar({ ...request, … })` makes that
+    // guard silently stop matching. A test that can no longer see the thing it
+    // protects is worse than no test.
+    chargedAcu: 0,
     nowISO,
   };
+  if (clonedVoice) {
+    // Marks the request as carrying a voice BEFORE `gateAvatar` runs, so the
+    // voice-consent check fires even though the track has not been made yet.
+    request.audioUrl = "pending";
+  }
 
   // 1. GATES. A refusal must never cost anything, so these run before the wallet.
   const gate = await gateAvatar(request);
@@ -155,8 +268,61 @@ export async function POST(req: NextRequest) {
     charged = meter.metered;
   }
 
+  // 2b. THE CLONED VOICE, IF THAT IS WHAT WAS ASKED FOR.
+  //
+  // ORDER MATTERS AND IT IS NOT THE OBVIOUS ONE. The speech is generated
+  // AFTER the avatar minutes are metered and BEFORE the provider is called,
+  // because the audio track is an input to the render: make it afterwards and
+  // there is nothing to lip-sync to; make it before the gates and a refused
+  // script has already cost the customer an ElevenLabs charge.
+  //
+  // It is metered SEPARATELY, per 1,000 characters, because that is how
+  // ElevenLabs bills us. Rolling it into the per-minute avatar price would
+  // breach the margin floor on a long script — quietly, which is the worst way.
+  // ONLY WHEN A PROVIDER WILL ACTUALLY RENDER. With none configured this route
+  // returns a written brief and charges nothing — so generating the speech here
+  // would bill the customer for an audio track with nothing to lip-sync it,
+  // which is the one outcome worse than no feature.
+  if (clonedVoice && wouldCallProvider()) {
+    if (!voiceConfigured()) {
+      return NextResponse.json({ error: "A cloned voice needs ELEVENLABS_API_KEY. Set it in the admin account, or pick one of the provider's own voices.", charged }, { status: 400 });
+    }
+    if (!storageConfigured()) {
+      return NextResponse.json({ error: "A cloned voice has to be hosted somewhere the presenter provider can fetch it, and no storage bucket is configured. Set FIREBASE_STORAGE_BUCKET, or pick one of the provider's own voices.", charged }, { status: 400 });
+    }
+    const units = billableUnits(request.script);
+    const speechMeter = await meterAction(access, "voice", units);
+    if (!speechMeter.allowed) {
+      // The avatar minutes were already taken. Put them back rather than
+      // leaving the customer charged for a render that is not going to happen.
+      if (charged && access.ok && access.uid) { try { await creditAcus(access.uid, ACTION_COST_ACU.avatar * minutes); } catch { /* noted below */ } }
+      return NextResponse.json({ error: speechMeter.error, balanceAcu: speechMeter.balanceAcu, charged: false, note: "The presenter minutes were refunded — nothing was rendered." }, { status: speechMeter.status });
+    }
+    const speech = await textToSpeech({ text: request.script, voiceId: str("elevenVoiceId") || undefined });
+    if (!speech.ok || !speech.audio) {
+      if (charged && access.ok && access.uid) { try { await creditAcus(access.uid, ACTION_COST_ACU.avatar * minutes); } catch { /* noted below */ } }
+      if (speechMeter.metered && access.ok && access.uid) { try { await creditAcus(access.uid, ACTION_COST_ACU.voice * units); } catch { /* noted below */ } }
+      return NextResponse.json({ error: speech.error || "The voice could not be generated.", charged: false, note: "Everything taken for this render has been put back." }, { status: 502 });
+    }
+    const hosted = await uploadPublicMedia(Buffer.from(speech.audio), {
+      contentType: "audio/mpeg", ext: "mp3", keyPrefix: "presenter-voice",
+      nameSeed: `${brandId}|${request.script}|${str("elevenVoiceId")}`,
+    });
+    if (!hosted) {
+      if (charged && access.ok && access.uid) { try { await creditAcus(access.uid, ACTION_COST_ACU.avatar * minutes); } catch { /* noted below */ } }
+      if (speechMeter.metered && access.ok && access.uid) { try { await creditAcus(access.uid, ACTION_COST_ACU.voice * units); } catch { /* noted below */ } }
+      return NextResponse.json({ error: "The voice was generated but could not be hosted, so the presenter has nothing to lip-sync to.", charged: false, note: "Everything taken for this render has been put back." }, { status: 503 });
+    }
+    request.audioUrl = hosted;
+  } else {
+    // Never send the sentinel to a provider. It exists only to make the consent
+    // gate fire before the track has been generated.
+    request.audioUrl = undefined;
+  }
+
   // 3. RENDER. The gates run again inside — one skipped check is the whole
   //    module lost — but by now they are known to pass.
+  request.chargedAcu = charged ? ACTION_COST_ACU.avatar * minutes : 0;
   const job = await renderAvatar(request);
 
   // 4. If the provider failed, REFUND. Charging before the call is the only way

@@ -105,7 +105,18 @@ export const ENV_CATALOGUE: EnvVar[] = [
   { name: "GOOGLE_OAUTH_CLIENT_ID", group: "Data", secret: false, unlocks: "Reads Search Console AND Business Profile as you, which a service account cannot.", where: "Google Cloud → OAuth client." },
   { name: "GOOGLE_OAUTH_CLIENT_SECRET", group: "Data", secret: true, unlocks: "The secret half of that OAuth client; the refresh token is useless without it.", where: "Same OAuth client." },
   { name: "GOOGLE_OAUTH_REFRESH_TOKEN", group: "Data", secret: true, unlocks: "Keeps that Google access alive without anybody signing in again.", where: "Obtained once via the OAuth flow." },
-  { name: "ELEVENLABS_API_KEY", group: "Media", secret: true, unlocks: "Voiceovers, voice cloning and dubbing in the Audio Studio.", where: "elevenlabs.io → Profile → API key. Check the key's SCOPES, not just its value." },
+  { name: "ELEVENLABS_API_KEY", group: "Media", secret: true, unlocks: "Voiceovers, voice cloning and dubbing in the Audio Studio — and the cloned voice a presenter video lip-syncs to.", where: "elevenlabs.io → Profile → API key. Check the key's SCOPES, not just its value." },
+  // THE PRESENTER POOL. These were read through a COMPUTED index —
+  // `process.env[provider.envKey]` — so the scanner that walks the source for a
+  // literal dotted environment read never saw them, and all three were missing
+  // from this catalogue. A key you
+  // cannot see is a key you cannot tell is missing, which is the exact
+  // blindness this file exists to end, so the lesson is written here: a
+  // computed environment read is invisible to the gate, and anything reached
+  // that way has to be catalogued by hand.
+  { name: "HEYGEN_API_KEY", group: "Media", secret: true, unlocks: "Presenter videos — a synthetic face reading your script, the avatar and voice roster, and lip-synced translation into 170+ languages.", where: "app.heygen.com → Settings → API. The API is on the paid tiers." },
+  { name: "DID_API_KEY", group: "Media", secret: true, unlocks: "Presenter videos through D-ID, as an alternative to HeyGen. No roster or translation — those are HeyGen's.", where: "studio.d-id.com → API keys. Sent as HTTP Basic, so use the key exactly as issued." },
+  { name: "SYNTHESIA_API_KEY", group: "Media", secret: true, unlocks: "Presenter videos through Synthesia, as an alternative to HeyGen.", where: "app.synthesia.io → Integrations → API. Enterprise plans only." },
   { name: "ELEVENLABS_VOICE_ID", group: "Media", secret: false, unlocks: "The voice used when the customer has not chosen one of their own.", where: "ElevenLabs - the voice id shown beside each voice in your library." },
   { name: "ELEVENLABS_MODEL", group: "Media", secret: false, unlocks: "Pins which ElevenLabs model produces speech, instead of the default.", where: "ElevenLabs - a model id from their model list." },
   { name: "VIDEO_WORKER_SECRET", group: "Media", secret: true, unlocks: "The self-hosted render worker (trim, clips, burned captions, upscale). Set on both sides. Currently FALSE on your deployment.", where: "Generate a random string; set the same value on the worker." },

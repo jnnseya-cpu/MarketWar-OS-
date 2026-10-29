@@ -86,10 +86,22 @@ const PROVIDER_COST_GBP = {
   // floor silently, while over-costing only leaves money on the table. Correct
   // it against the first real invoice; every downstream price re-derives.
   avatar: 0.45,
+  // Lip-synced translation, per MINUTE PER LANGUAGE. A different product from
+  // `dub` above: dubbing re-voices the audio (ElevenLabs) and leaves the mouth
+  // speaking the original language, which is fine over B-roll and obviously
+  // wrong on a close-up. This re-renders the mouth, costs more, and is priced
+  // on its own line so the cheaper option is never quietly billed at the dearer
+  // rate — or the dearer one at a price that breaches the floor.
+  //
+  // Like `avatar`, this is an ESTIMATE from published rates and deliberately on
+  // the high side: under-costing breaches the margin floor silently, while
+  // over-costing only leaves money on the table. Correct it against the first
+  // real invoice and every downstream price re-derives.
+  avatar_translate: 0.50,
 } as const;
 
 // Actions that persist a large artifact carry extra storage/egress cost.
-const PERSISTS: Partial<Record<keyof typeof PROVIDER_COST_GBP, boolean>> = { image: true, video: true, post: true, voice: true, dub: true, avatar: true };
+const PERSISTS: Partial<Record<keyof typeof PROVIDER_COST_GBP, boolean>> = { image: true, video: true, post: true, voice: true, dub: true, avatar: true, avatar_translate: true };
 
 // The price is the HIGHER of:
 //   (a) 4x the provider bill — the owner's headline markup, and
@@ -120,6 +132,7 @@ export const ACTION_COST_ACU = {
   voice: priced("voice"),      // per 1,000 characters of speech
   dub: priced("dub"),          // per minute of dubbed video
   avatar: priced("avatar"),    // per minute of synthetic-presenter video
+  avatar_translate: priced("avatar_translate"), // per minute PER LANGUAGE, lip-synced
   // --- Rule 2: costs us ~nothing, so a token charge only -----------------
   publish_page: NOMINAL,       // hosting a page we already serve
   publish_social: NOMINAL,     // handing a post to a connected account
