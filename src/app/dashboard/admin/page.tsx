@@ -18,6 +18,7 @@ import ProductKpis from "@/components/ProductKpis";
 import AdminInvites from "@/components/AdminInvites";
 import AdminGrantAcus from "@/components/AdminGrantAcus";
 import AdminKeys from "@/components/AdminKeys";
+import AdminCosts from "@/components/AdminCosts";
 import { authedFetch } from "@/frontend/api-client";
 
 // Mirrors of the backend OwnerDashboard shape (the engine is server-only).
@@ -243,6 +244,13 @@ export default function AdminPage() {
           in a hosting dashboard, and a deploy before a key took effect. */}
       <div className="mt-6">
         <AdminKeys />
+      </div>
+
+      {/* Every customer price is derived from what we believe we pay. Until a
+          real invoice corrects it, that belief is an estimate set high on
+          purpose — which makes the prices high too. */}
+      <div className="mt-6">
+        <AdminCosts />
       </div>
     </div>
   );

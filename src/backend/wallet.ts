@@ -111,16 +111,54 @@ const PERSISTS: Partial<Record<keyof typeof PROVIDER_COST_GBP, boolean>> = { ima
 // call: a Serper query costs £0.0025, so 4x is 1 ACU (1p) — but infra, payment
 // and overhead push the loaded cost to ~£0.0055, leaving only 82% net profit.
 // Taking the max keeps the headline markup AND guarantees the owner's floor.
+/**
+ * Admin-set provider costs, empty until `provider-costs.ts` hydrates them.
+ * Declared ABOVE `priced` because that is what reads it.
+ */
+let costOverrides: Partial<Record<keyof typeof PROVIDER_COST_GBP, number>> = {};
+
+/** What we believe this provider charges us — the override if there is one. */
+const costOf = (k: keyof typeof PROVIDER_COST_GBP): number =>
+  costOverrides[k] ?? PROVIDER_COST_GBP[k];
+
 const priced = (k: keyof typeof PROVIDER_COST_GBP) => Math.max(
-  requiredAcus(PROVIDER_COST_GBP[k]).requiredAcus,
-  minimumAcusFor({ providerCostGbp: PROVIDER_COST_GBP[k], persistsArtifact: PERSISTS[k] }).minAcus,
+  requiredAcus(costOf(k)).requiredAcus,
+  minimumAcusFor({ providerCostGbp: costOf(k), persistsArtifact: PERSISTS[k] }).minAcus,
 );
 
 // Nominal charges for actions with no meaningful marginal cost to us.
 const NOMINAL = 1;      // 1 ACU = 1p
 const NOMINAL_HEAVY = 2; // slightly more work (bandwidth, storage, fan-out)
 
-export const ACTION_COST_ACU = {
+// ---------------------------------------------------------------------------
+// THE PRICE TABLE IS LIVE, NOT FROZEN AT IMPORT
+// ---------------------------------------------------------------------------
+//
+// WHY, IN THE OWNER'S OWN WORDS: *"HeyGen using the same AI provider as us but
+// they are very very cheap compared to the price you are telling me."* Half the
+// answer is that HeyGen makes its own avatar models and we resell them, so a
+// reseller cannot undercut the manufacturer. The other half is that OUR NUMBER
+// WAS A GUESS — `PROVIDER_COST_GBP.avatar` is an estimate, flagged as one in
+// its own comment, and every customer price stacks on top of it.
+//
+// It used to be a compile-time constant, so correcting it against the first
+// real invoice meant editing source and deploying. That is the wrong shape for
+// a number that is only knowable AFTER a vendor bills you — and it is the same
+// problem §170 solved for keys.
+//
+// So the table below is MUTABLE INSIDE THIS MODULE and exported as readonly.
+// Every one of the 62 readers across the codebase holds a reference to this one
+// object, so recomputing a value in place reaches all of them at once. The
+// alternative — a getter, a proxy, or an async price lookup — would have meant
+// touching 62 call sites in money code to change one number.
+//
+// THE FLOOR IS NOT NEGOTIABLE BY THIS MECHANISM. An override changes the
+// PROVIDER COST only; the customer price is still `priced()`, which takes the
+// higher of 4x the provider bill and the minimum that clears 100% net profit.
+// A cost typed into the admin screen can therefore move the price DOWN when the
+// real invoice is cheaper than the estimate — which is the point — and can
+// never move the margin below the owner's floor.
+const COST_TABLE = {
   // --- Rule 1: real provider cost, charged at 4x -------------------------
   llm: priced("llm"),          // 5
   search: priced("search"),    // 1
@@ -141,8 +179,48 @@ export const ACTION_COST_ACU = {
   report: NOMINAL,             // rendering data the customer already owns
   data_export: NOMINAL,        // their own data, back to them
   connector_sync: NOMINAL,     // a free provider API call
-} as const;
-export type ActionKind = keyof typeof ACTION_COST_ACU;
+};
+
+/** The live price table. Readonly to everybody outside this module. */
+export const ACTION_COST_ACU: { readonly [K in keyof typeof COST_TABLE]: number } = COST_TABLE;
+export type ActionKind = keyof typeof COST_TABLE;
+
+/** The provider costs this platform believes it is paying, after any override. */
+export function providerCostGbp(): Record<string, number> {
+  return { ...PROVIDER_COST_GBP, ...costOverrides };
+}
+
+/**
+ * Apply admin-set provider costs and re-derive every price that depends on one.
+ *
+ * Called by `backend/provider-costs.ts` after it reads the store. Returns what
+ * changed, so the caller can log it: a silent price change is the kind of thing
+ * that is noticed first by a customer.
+ */
+export function applyProviderCostOverrides(
+  overrides: Partial<Record<keyof typeof PROVIDER_COST_GBP, number>>,
+): { key: string; costGbp: number; wasAcu: number; nowAcu: number }[] {
+  const changed: { key: string; costGbp: number; wasAcu: number; nowAcu: number }[] = [];
+  costOverrides = {};
+  for (const [k, v] of Object.entries(overrides)) {
+    // ONLY A COST THIS PLATFORM ACTUALLY HAS, and only a sane one. A negative
+    // or absurd cost would re-derive a price of zero or a price nobody could
+    // pay, and this table is read by the thing that takes money.
+    if (!(k in PROVIDER_COST_GBP)) continue;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 100) continue;
+    costOverrides[k as keyof typeof PROVIDER_COST_GBP] = v;
+  }
+  for (const k of Object.keys(PROVIDER_COST_GBP) as (keyof typeof PROVIDER_COST_GBP)[]) {
+    if (!(k in COST_TABLE)) continue;
+    const was = COST_TABLE[k as keyof typeof COST_TABLE];
+    const now = priced(k);
+    if (was !== now) {
+      COST_TABLE[k as keyof typeof COST_TABLE] = now;
+      changed.push({ key: k, costGbp: costOf(k), wasAcu: was, nowAcu: now });
+    }
+  }
+  return changed;
+}
 
 export type WalletState = {
   orgId: string;
@@ -751,6 +829,18 @@ export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1,
   // without one would mean the two disagreed — which is exactly the split this
   // function was collapsed into one rule to prevent.
   if (!auth.uid) return { allowed: true, status: 200, metered: false };
+
+  // THE SINGLE DOOR WHERE MONEY IS TAKEN, so it is the right place to make sure
+  // the price is the current one. Provider costs can be corrected from the
+  // admin screen (`backend/provider-costs.ts`) and every price re-derives from
+  // them; without this line a running instance would go on charging the
+  // estimate it was born with until it recycled. TTL-cached to one store read a
+  // minute, and it never throws — a store hiccup leaves the previous prices
+  // standing rather than failing a paid action.
+  try {
+    const { ensureProviderCosts } = await import("@/backend/provider-costs");
+    await ensureProviderCosts();
+  } catch { /* the prices in memory stand */ }
 
   const cost = Math.max(0, Math.round(ACTION_COST_ACU[kind] * Math.max(1, units)));
   const res = await debitAcus(auth.uid, cost);

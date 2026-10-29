@@ -47,25 +47,95 @@ export type AvatarProvider = {
   /** Uses the provider itself forbids, from their published policies. */
   forbids: string[];
   customAvatars: boolean;
+  /**
+   * WHAT THIS ONE CHARGES US PER MINUTE, and the reason the pool has a price
+   * column at all.
+   *
+   * The owner's question: HeyGen looks far cheaper than our price. Half of that
+   * is structural — HeyGen BUILDS its avatar models and we resell them, so a
+   * reseller cannot undercut the manufacturer — but the other half is a lever
+   * we were not pulling: these three do not cost the same, and the pool was
+   * picking whichever key happened to be set first.
+   *
+   * ESTIMATES, EVERY ONE, from published rates and deliberately on the high
+   * side, exactly like `PROVIDER_COST_GBP`. Correct them in the Admin Control
+   * Centre against a real invoice and the price re-derives — do not edit them
+   * here and deploy.
+   */
+  costPerMinuteGbp: number;
+  /** Does it publish a roster this platform can list? */
+  roster: boolean;
+  /** Can it re-render the mouth for another language? */
+  translation: boolean;
 };
 
 export const AVATAR_PROVIDERS: AvatarProvider[] = [
   {
     id: "heygen", label: "HeyGen", envKey: "HEYGEN_API_KEY", customAvatars: true,
+    costPerMinuteGbp: 0.45, roster: true, translation: true,
     forbids: ["impersonating a real person without consent", "political campaigning", "content implying a medical or financial recommendation"],
   },
   {
     id: "did", label: "D-ID", envKey: "DID_API_KEY", customAvatars: true,
+    costPerMinuteGbp: 0.18, roster: false, translation: false,
     forbids: ["animating a photo of someone who has not consented", "deceptive or defamatory depiction"],
   },
   {
     id: "synthesia", label: "Synthesia", envKey: "SYNTHESIA_API_KEY", customAvatars: true,
+    costPerMinuteGbp: 0.60, roster: false, translation: false,
     forbids: ["news-style content", "political content", "claims requiring regulatory approval"],
   },
 ];
 
-export function configuredProvider(): AvatarProvider | null {
-  return AVATAR_PROVIDERS.find((p) => Boolean(process.env[p.envKey])) || null;
+/**
+ * Which provider renders this, and it is the CHEAPEST configured one.
+ *
+ * IT USED TO BE WHICHEVER KEY WAS SET FIRST — `AVATAR_PROVIDERS.find(...)` —
+ * which meant the array's declaration order decided what every tenant paid.
+ * With HeyGen listed first, configuring a cheaper provider alongside it changed
+ * nothing at all: the pool existed for failover and did no work on price.
+ *
+ * Now the pool routes on cost, which is the owner's pricing law applied to our
+ * own supply: *win on a lower cost base, never by breaching the floor*. The
+ * customer price follows the same number, so a cheaper supplier is a cheaper
+ * price rather than a quietly fatter margin.
+ *
+ * A `need` narrows the field first, because two of the three cannot do
+ * everything: only HeyGen publishes a roster and only HeyGen re-renders a
+ * mouth. Asking for the cheapest provider that cannot do the job is how a pool
+ * silently downgrades a feature.
+ */
+export function configuredProvider(need?: "roster" | "translation"): AvatarProvider | null {
+  const able = AVATAR_PROVIDERS
+    .filter((p) => Boolean(process.env[p.envKey]))
+    .filter((p) => (need === "roster" ? p.roster : need === "translation" ? p.translation : true));
+  if (!able.length) return null;
+  return able.reduce((cheapest, p) => (p.costPerMinuteGbp < cheapest.costPerMinuteGbp ? p : cheapest));
+}
+
+/**
+ * What a presenter minute costs us on the provider that would actually run it,
+ * so the price the customer is quoted comes from the same choice the router
+ * makes. Falls back to the catalogue estimate when nothing is configured.
+ */
+export function activeAvatarCostGbp(): number | null {
+  const p = configuredProvider();
+  return p ? p.costPerMinuteGbp : null;
+}
+
+/** Every configured provider with what it costs and what it can do. */
+export function poolStatus(): {
+  id: AvatarProviderId; label: string; configured: boolean; costPerMinuteGbp: number;
+  roster: boolean; translation: boolean; chosen: boolean;
+}[] {
+  const chosen = configuredProvider();
+  return AVATAR_PROVIDERS.map((p) => ({
+    id: p.id, label: p.label,
+    configured: Boolean(process.env[p.envKey]),
+    costPerMinuteGbp: p.costPerMinuteGbp,
+    roster: p.roster, translation: p.translation,
+    chosen: chosen?.id === p.id,
+  }));
 }
 
 export function avatarGatewayConfigured(): boolean { return configuredProvider() !== null; }
@@ -716,7 +786,8 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
  * of the customer with no explanation.
  */
 export async function avatarRoster(force = false): Promise<Roster> {
-  const provider = configuredProvider();
+  // Asks for a provider that publishes one — the cheapest renderer may not.
+  const provider = configuredProvider("roster") || configuredProvider();
   if (!provider) {
     return { avatars: [], voices: [], fetchedAt: Date.now(), note: "No avatar provider is configured, so there is no roster to show. Set HEYGEN_API_KEY in the admin account and the presenters appear here." };
   }
@@ -878,7 +949,7 @@ async function loadTranslation(jobId: string): Promise<TranslationJob | null> {
  * is paying for.
  */
 export async function translationLanguages(): Promise<{ languages: string[]; note: string }> {
-  const provider = configuredProvider();
+  const provider = configuredProvider("translation");
   if (!provider || provider.id !== "heygen") {
     return { languages: [], note: "Lip-synced translation needs HeyGen. Without it the platform can still DUB (ElevenLabs) — the audio is translated but the mouth is not, which is fine over B-roll and wrong on a face." };
   }
@@ -910,7 +981,7 @@ export async function startTranslation(input: {
   chargedAcu: number;
   nowISO: string;
 }): Promise<StartTranslation> {
-  const provider = configuredProvider();
+  const provider = configuredProvider("translation");
   if (!provider || provider.id !== "heygen") {
     return { ok: false, error: "Lip-synced translation needs HeyGen configured. The dubbing path translates the audio without the mouth, which is a different product." };
   }

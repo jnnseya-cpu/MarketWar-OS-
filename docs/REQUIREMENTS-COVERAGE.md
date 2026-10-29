@@ -11882,3 +11882,98 @@ status is a named diagnostic rather than a silent "still rendering" that would
 strand a paid job forever. The **storage branch is also unexercised**: no bucket
 is configured here, so every driven render took the honest fallback that hands
 over the provider's own link and says it will expire.
+
+---
+
+## 44. The price was built on a guess, so the guess became correctable (§172, 2026-10-29)
+
+Owner, comparing our presenter price to HeyGen's published plans: *"Why HeyGen
+using the same AI provider as us but they are very very cheap compared to the
+price you are telling me?"* — then, to the two levers offered: *"Want me to make
+the provider cost admin-settable and add cost-based routing across the pool?"*
+
+### The answer to the question, because it shaped the work
+
+The premise is half right, and the half that is wrong is the whole answer.
+
+**For avatars, HeyGen is not using a provider — they ARE the provider.** Their
+own pricing page calls Avatar III, IV and V *"our proven AI Avatar engines"*.
+They train and run them. We buy from them. So the comparison is **their cost of
+goods against our purchase price**, and a reseller cannot undercut the
+manufacturer on the manufacturer's own product. (For *generative* video the
+premise holds: they bundle VEO 3.1 and Seedance, the same models we call.)
+
+Two more reasons the comparison flatters them: the screenshots are the
+**self-serve subscription tiers**, and their own page links separately to
+*"Explore API pricing"* — API access is what a reseller consumes and is not what
+a Creator-plan subscriber pays. And a credit pool always looks cheaper per unit
+than a meter, because the light users subsidise the heavy ones.
+
+**But part of the gap was ours.** `PROVIDER_COST_GBP.avatar = 0.45` is an
+estimate whose own comment says *"deliberately on the high side… correct it
+against the first real invoice; every downstream price re-derives."* Correcting
+it required editing source and deploying — the wrong shape for a number only
+knowable **after** a vendor bills you.
+
+### What was built
+
+**1. The price table is live, not frozen at import.** `ACTION_COST_ACU` was
+computed once at module load from a compile-time constant. It is now a mutable
+table inside `wallet.ts`, exported readonly, so recomputing a value in place
+reaches all **62 readers** at once — the alternative was touching 62 call sites
+in money code to change one number. `backend/provider-costs.ts` stores
+corrections in `platform_config/provider_costs` (no new collection, so the data
+register is unchanged) and hydrates them through **`meterAction`, the single
+door where money is taken**, TTL-cached to one read a minute.
+
+**The floor is not negotiable by this mechanism.** An override sets the believed
+*provider cost*; the price is still `priced()` — the higher of 4× that cost and
+the minimum that clears 100% net profit after infrastructure, Stripe and
+overhead. So a cheaper invoice makes the platform cheaper and **no number typed
+into the admin screen can make it unprofitable**. Asserted across seven cost
+points from £0 to £2.
+
+**2. The pool routes on cost.** `configuredProvider()` was
+`AVATAR_PROVIDERS.find(configured)` — **the declaration order decided what every
+tenant paid**, so configuring a cheaper supplier alongside HeyGen changed
+nothing at all. The pool existed for failover and did no work on price. Each
+member now carries a per-minute cost, the cheapest configured one renders, and
+the **customer price follows the route** rather than the margin quietly
+widening. A `need` narrows the field first, because only HeyGen publishes a
+roster or re-renders a mouth — routing on cost must never silently remove a
+feature.
+
+### The numbers, computed by the live pricing law
+
+```
+    what we pay   what the customer pays   markup
+    £0.45/min       180 ACU = £1.80    4.0x  ← today's ESTIMATE
+    £0.18/min        72 ACU = £0.72    4.0x  ← D-ID in the pool
+    £0.12/min        48 ACU = £0.48    4.0x
+    £0.05/min        20 ACU = £0.20    4.0x
+```
+
+Adding D-ID to the pool takes a presenter minute from **£1.80 to £0.72** with no
+change to the margin rule. A corrected invoice can take it further.
+
+### Verification
+
+- `tests/provider-costs.test.mjs` — **9 tests**, the sharpest being that the
+  margin floor survives a provider cost of **zero**, since this is a mechanism
+  that changes what customers pay from a text field.
+- `npm run drive:costs` — **10 proven / 0 broken**, printing the table above
+  from the live engine rather than from arithmetic in a comment.
+- **Four mutants killed**: dropping the net-profit floor; accepting any typed
+  value; merging overrides instead of replacing them (a reset that does not
+  reset); and reverting to first-configured-wins routing.
+
+### What this does not change, and should not be read as changing
+
+On presenter video alone we are HeyGen's reseller and will lose a price
+comparison with them. The two levers above are the only ones that are ours. The
+other two are commercial decisions, not code: **bundle an allowance** into the
+plan the way they do (the mechanism already exists — plans allocate monthly ACUs
+at price × 20% × 100), and **stop pricing presenter minutes as a line item**,
+since a customer buying campaigns does not shop for video minutes.
+
+Every rate in the pool is still an **estimate** until an invoice replaces it.
