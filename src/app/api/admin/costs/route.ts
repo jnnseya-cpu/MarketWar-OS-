@@ -41,6 +41,25 @@ async function adminOnly(req: NextRequest): Promise<
   return { ok: true, uid: auth.uid };
 }
 
+/**
+ * WHEN A NEW PRICE ACTUALLY REACHES CUSTOMERS.
+ *
+ * A cut is immediate for everybody. A rise waits for each customer's next
+ * billing cycle, because the allowance in a cycle already paid for was bought
+ * at the old price. The one exception is a correction so large that holding the
+ * old price would breach the owner's 2x floor — then it applies now, and the
+ * wallet is told why at the moment it is charged.
+ */
+function reachNote(timing?: "deferred" | "immediate" | "cleared"): string {
+  if (timing === "deferred") {
+    return "This is a RISE, so it reaches each customer at their next renewal, not today — a cycle already paid for keeps the price it was bought at. New sign-ups and renewals pay it immediately. A correction too large to absorb (one that would put the old price below the 2x floor) applies at once instead, and says so when it charges.";
+  }
+  if (timing === "cleared") {
+    return "This is a CUT, and it also cancels the rise that was being deferred on this line — every wallet is on the new lower price at once, including the ones that were still being held at the old one.";
+  }
+  return "This is a cut or no change, so it reaches every customer immediately.";
+}
+
 export async function GET(req: NextRequest) {
   const auth = await adminOnly(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -110,7 +129,7 @@ export async function POST(req: NextRequest) {
       before: { acu: String(applied.wasAcu) },
       after: { acu: String(applied.nowAcu), costGbp: String(applied.costGbp), invoice: `${r.currency} ${r.invoiceAmount}`, units: String(r.units) },
     });
-    return NextResponse.json({ ...applied, preview: r, note: r.verdict });
+    return NextResponse.json({ ...applied, preview: r, note: `${r.verdict} ${reachNote(applied.timing)}` });
   }
 
   const costGbp = typeof body.costGbp === "number" ? body.costGbp : Number(body.costGbp);
@@ -129,7 +148,7 @@ export async function POST(req: NextRequest) {
     ...r,
     note: r.wasAcu === r.nowAcu
       ? `Recorded. The customer price is unchanged at ${r.nowAcu} ACUs — the floor that guarantees 100% net profit is holding it there, not the 4x markup.`
-      : `Recorded. The customer price moves from ${r.wasAcu} to ${r.nowAcu} ACUs per unit, on this server now and everywhere within a minute.`,
+      : `Recorded. The customer price moves from ${r.wasAcu} to ${r.nowAcu} ACUs per unit. ${reachNote(r.timing)}`,
   });
 }
 

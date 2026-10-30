@@ -37,6 +37,7 @@ if (typeof window !== "undefined") {
 
 import { adminDb, adminConfigured } from "@/backend/firebase-admin";
 import { applyProviderCostOverrides, providerCostGbp, ACTION_COST_ACU } from "@/backend/wallet";
+import { notePriceChange, risesInEffect, ensurePriceRises } from "@/backend/price-locks";
 
 const COLLECTION = "platform_config";
 const DOC = "provider_costs";
@@ -145,7 +146,16 @@ export async function ensureProviderCosts(): Promise<void> {
 export const MAX_COST_GBP = 100;
 
 export type SetCostResult =
-  | { ok: true; key: string; costGbp: number; wasAcu: number; nowAcu: number }
+  | {
+      ok: true; key: string; costGbp: number; wasAcu: number; nowAcu: number;
+      /**
+       * When the new price reaches customers. "deferred" means it went UP and
+       * wallets already in a paid cycle keep the old one until they renew;
+       * "immediate" means it went down, or there was nothing to defer;
+       * "cleared" means a previously deferred rise has been undone by this cut.
+       */
+      timing?: "deferred" | "immediate" | "cleared";
+    }
   | { ok: false; status: number; error: string };
 
 /** Record what a provider really charges, and re-derive the prices now. */
@@ -187,11 +197,20 @@ export async function setProviderCost(
   lastRead = 0;
   await ensureProviderCosts();
   const nowAcu = ACTION_COST_ACU[key as keyof typeof ACTION_COST_ACU] ?? 0;
-  return { ok: true, key, costGbp, wasAcu, nowAcu };
+
+  // A CUT REACHES EVERYBODY NOW. A RISE WAITS FOR EACH CUSTOMER'S NEXT BILL.
+  //
+  // The screen has warned about this since §173 — "a rise reaches everyone
+  // immediately, including customers part-way through a month who budgeted on
+  // the old price" — and warning is not preventing. Recording the rise here is
+  // what makes the deferral possible; recording nothing on a cut is what makes
+  // a cut immediate. `backend/price-locks.ts` holds the rule.
+  const timing = await notePriceChange(key, wasAcu, nowAcu, by);
+  return { ok: true, key, costGbp, wasAcu, nowAcu, timing };
 }
 
 /** Drop a correction and go back to the built-in estimate. */
-export async function clearProviderCost(key: string, _by: string): Promise<SetCostResult> {
+export async function clearProviderCost(key: string, by: string): Promise<SetCostResult> {
   if (!adminConfigured || !adminDb) {
     return { ok: false, status: 503, error: "No database is configured, so there is no stored correction to remove." };
   }
@@ -201,8 +220,14 @@ export async function clearProviderCost(key: string, _by: string): Promise<SetCo
   lastRead = 0;
   await ensureProviderCosts();
   const nowAcu = ACTION_COST_ACU[key as keyof typeof ACTION_COST_ACU] ?? 0;
-  return { ok: true, key, costGbp: providerCostGbp()[key] ?? 0, wasAcu, nowAcu };
+  // Dropping a correction can move the price either way, so it goes through the
+  // same rule: back UP to the estimate defers, back DOWN is immediate.
+  const timing = await notePriceChange(key, wasAcu, nowAcu, by);
+  return { ok: true, key, costGbp: providerCostGbp()[key] ?? 0, wasAcu, nowAcu, timing };
 }
+
+/** A price rise that existing cycles have not reached yet. */
+export type DeferredRise = { kind: string; fromAcu: number; toAcu: number; at: string };
 
 export type CostLine = {
   key: string;
@@ -242,8 +267,9 @@ const UNITS: Record<string, string> = {
 };
 
 /** Every cost line with what it currently produces, for the admin screen. */
-export async function costInventory(): Promise<{ lines: CostLine[]; note: string }> {
+export async function costInventory(): Promise<{ lines: CostLine[]; note: string; deferred: DeferredRise[] }> {
   await ensureProviderCosts();
+  await ensurePriceRises();
   const doc = await readDoc();
   const costs = providerCostGbp();
   const lines: CostLine[] = Object.keys(costs).map((key) => {
@@ -269,8 +295,15 @@ export async function costInventory(): Promise<{ lines: CostLine[]; note: string
     };
   });
   const corrected = lines.filter((l) => l.corrected).length;
+  // RISES NOBODY IS PAYING YET. A correction that put a price up does not reach
+  // a cycle already paid for, so the screen that applied it has to be able to
+  // say so — otherwise the price in the table and the price customers are
+  // charged disagree with nothing to explain the gap.
+  const deferred: DeferredRise[] = risesInEffect().map((r) => ({
+    kind: r.kind, fromAcu: r.fromAcu, toAcu: r.toAcu, at: r.at,
+  }));
   return {
-    lines,
+    lines, deferred,
     note: corrected
       ? `${corrected} of ${lines.length} costs are corrected from a real invoice. The rest are the built-in estimates, which are deliberately on the high side — so the prices derived from them are too.`
       : "Every cost here is a built-in ESTIMATE, deliberately on the high side so the margin floor can never be breached silently. That means the prices derived from them are higher than they need to be. Correct one against a real invoice and its price re-derives immediately.",

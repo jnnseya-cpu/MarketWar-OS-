@@ -323,6 +323,22 @@ export type WalletState = {
    * absent must never be read as zero — a zero-value conversion teaches the ad
    * platform this customer is worth nothing.
    */
+  /**
+   * WHEN THE CURRENT SUBSCRIPTION CYCLE WAS PAID FOR.
+   *
+   * `lastCredit` cannot answer this: a top-up overwrites it, so one £5 purchase
+   * erases every trace of when the plan was last billed. This is written in the
+   * same transaction, and only for a plan payment, because it is what decides
+   * whether a price rise applies to this customer yet (`backend/price-locks.ts`)
+   * — a customer who paid before a correction keeps the price they budgeted on
+   * until their next renewal.
+   *
+   * Absent on every wallet written before it existed, and absent is read as
+   * "paid before the rise", which is the customer-favouring reading. An
+   * existing paying customer must never lose protection because a field was
+   * added.
+   */
+  subscriptionCreditedAt?: string | null;
   lastCredit?: {
     eventId: string;
     /** "subscription" for a plan payment, "topup" for bought credits. */
@@ -682,6 +698,11 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
         // Only overwritten when this event IS a sale; a grace period or a
         // downgrade must not erase the last real payment.
         ...(stamp ? { lastCredit: stamp } : {}),
+        // And a PLAN payment alone moves the cycle anchor a deferred price rise
+        // is measured against. A top-up must not move it: buying credits is not
+        // starting a new cycle, and treating it as one would hand the customer
+        // the new price in the middle of a month they had already paid for.
+        ...(stamp?.kind === "subscription" ? { subscriptionCreditedAt: stamp.at } : {}),
         updatedAt: now,
       };
       tx.set(walletRef, next, { merge: false });
@@ -738,6 +759,7 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
     // reporting end to end — the whole point of zero-config mode is that the
     // path a customer takes is the path that was tested.
     ...(stamp ? { lastCredit: stamp } : {}),
+    ...(stamp?.kind === "subscription" ? { subscriptionCreditedAt: stamp.at } : {}),
     ...(reversal > 0 || settled > 0 ? { balanceAcu: credited.balanceAcu - taken, owedAcu: owedBefore - settled + unrecovered } : {}),
     ...(outcome.scheduleRelease
       ? { annualRelease: { perMonth: outcome.scheduleRelease.perMonth, remainingMonths: outcome.scheduleRelease.months, nextAt: new Date(Date.now() + RELEASE_INTERVAL_MS).toISOString() } }
@@ -762,7 +784,13 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
 //   • Authenticated regular user        → DEBIT; refuse (402) when out of ACUs.
 // Returns { allowed, status, error, balanceAcu?, charged? }.
 // ---------------------------------------------------------------------------
-export type MeterResult = { allowed: boolean; status: number; error?: string; balanceAcu?: number; charged?: number; metered: boolean };
+export type MeterResult = {
+  allowed: boolean; status: number; error?: string; balanceAcu?: number; charged?: number; metered: boolean;
+  /** True when this wallet paid a pre-correction price (`backend/price-locks.ts`). */
+  deferredPrice?: boolean;
+  /** The sentence explaining the price charged, when it is not the list one. */
+  priceNote?: string;
+};
 
 /**
  * The caller, reduced to the three things that decide whether they pay.
@@ -831,10 +859,65 @@ export function meteringExempt(who: Spender | null | undefined): { exempt: boole
  *
  * Exempt callers can always afford it, for the same reason they are not metered.
  */
+/**
+ * WHAT THIS WALLET PAYS FOR ONE UNIT OF THIS ACTION, right now.
+ *
+ * The list price for almost everybody, and the pre-correction price for a
+ * customer whose current cycle was paid for before a rise — see
+ * `backend/price-locks.ts` for the rule and the one place it bends.
+ *
+ * Both the door check and the charge go through here, because the recurring
+ * defect in this codebase is a value that exists on one side of a boundary and
+ * never gets carried across. A check at the list price and a charge at the
+ * locked price would refuse work the customer could afford; the reverse would
+ * start work it could not pay for.
+ */
+/**
+ * The only expression in this file that turns a unit price into a charge.
+ *
+ * One named function rather than the same `Math.round(price * units)` written
+ * at each door, so that "what is this customer charged" has a single answer and
+ * a test can prove both doors ask it. The two used to differ by a value that
+ * existed on one side of the boundary and never crossed — a check at the list
+ * price and a charge at the locked one refuses work the customer could afford.
+ */
+export function chargeFor(unitAcu: number, units: number): number {
+  const price = Number.isFinite(unitAcu) && unitAcu > 0 ? unitAcu : 0;
+  return Math.max(0, Math.round(price * Math.max(1, units)));
+}
+
+export async function unitPriceAcu(
+  kind: ActionKind,
+  wallet: Pick<WalletState, "cycle" | "planId" | "subscriptionCreditedAt"> | null,
+): Promise<{ acu: number; deferred: boolean; why: string }> {
+  const current = ACTION_COST_ACU[kind];
+  try {
+    const { ensurePriceRises, riseFor, lockedPriceAcu } = await import("@/backend/price-locks");
+    await ensurePriceRises();
+    const locked = lockedPriceAcu({
+      currentAcu: current,
+      providerCostGbp: costOf(kind as keyof typeof PROVIDER_COST_GBP) ?? 0,
+      rise: riseFor(kind),
+      wallet,
+      nowISO: nowIso(),
+    });
+    return { acu: locked.acu, deferred: locked.deferred, why: locked.why };
+  } catch {
+    // A deferral is a courtesy; the list price is the contract. If the lock
+    // cannot be read, charge the price everybody else is paying rather than
+    // failing a paid action.
+    return { acu: current, deferred: false, why: "The current price." };
+  }
+}
+
 export async function canAffordAction(auth: AuthResult, kind: ActionKind, units = 1): Promise<{ ok: boolean; needed: number; balanceAcu: number; error?: string }> {
-  const needed = Math.max(0, Math.round(ACTION_COST_ACU[kind] * Math.max(1, units)));
-  if (!auth.ok || !auth.uid || meteringExempt(auth).exempt) return { ok: true, needed, balanceAcu: 0 };
+  // Reported to a caller who will never be charged, so it is the LIST price by
+  // design: there is no wallet to read a deferral from.
+  const list = chargeFor(ACTION_COST_ACU[kind], units);
+  if (!auth.ok || !auth.uid || meteringExempt(auth).exempt) return { ok: true, needed: list, balanceAcu: 0 };
   const wallet = await getWallet(auth.uid);
+  const unit = await unitPriceAcu(kind, wallet);
+  const needed = chargeFor(unit.acu, units);
   if (wallet.balanceAcu >= needed) return { ok: true, needed, balanceAcu: wallet.balanceAcu };
   return {
     ok: false, needed, balanceAcu: wallet.balanceAcu,
@@ -863,7 +946,15 @@ export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1,
     await ensureProviderCosts();
   } catch { /* the prices in memory stand */ }
 
-  const cost = Math.max(0, Math.round(ACTION_COST_ACU[kind] * Math.max(1, units)));
+  // AND THE PRICE THIS PARTICULAR CUSTOMER IS ON. A correction that put a
+  // price UP does not reach a cycle that was already paid for — the allowance
+  // they bought keeps the purchasing power it was sold with until their next
+  // renewal. A cut reaches everybody at once, which is why only rises are
+  // recorded. `backend/price-locks.ts` holds the rule and the floor that bounds
+  // it.
+  const wallet = await getWallet(auth.uid);
+  const unit = await unitPriceAcu(kind, wallet);
+  const cost = chargeFor(unit.acu, units);
   const res = await debitAcus(auth.uid, cost);
   if (!res.ok) {
     return {
@@ -874,7 +965,10 @@ export async function meterAction(auth: AuthResult, kind: ActionKind, units = 1,
   // Only after a debit that actually happened, and never allowed to throw — the
   // customer has been charged by this point and their work must proceed.
   await recordSpend({ walletId: auth.uid, agent: agent || kind, kind, acus: res.charged });
-  return { allowed: true, status: 200, metered: true, balanceAcu: res.balanceAcu, charged: res.charged };
+  return {
+    allowed: true, status: 200, metered: true, balanceAcu: res.balanceAcu, charged: res.charged,
+    ...(unit.deferred ? { deferredPrice: true, priceNote: unit.why } : {}),
+  };
 }
 
 /**

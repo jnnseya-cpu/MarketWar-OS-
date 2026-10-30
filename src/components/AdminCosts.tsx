@@ -23,7 +23,7 @@
 // and no number typed here can make it unprofitable.
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Calculator, Coins, Loader2, Receipt, RefreshCw, RotateCcw, Route } from "lucide-react";
+import { AlertTriangle, Calculator, Clock, Coins, Loader2, Receipt, RefreshCw, RotateCcw, Route } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
 
@@ -39,6 +39,7 @@ type Preview = {
   costPerUnitGbp: number; currentCostGbp: number; currentPriceAcu: number; newPriceAcu: number;
   direction: "cheaper" | "dearer" | "same"; changePct: number; verdict: string;
 };
+type Deferred = { kind: string; fromAcu: number; toAcu: number; at: string };
 type PoolMember = {
   id: string; label: string; configured: boolean; costPerMinuteGbp: number;
   roster: boolean; translation: boolean; chosen: boolean;
@@ -59,9 +60,9 @@ const str = (v: unknown) => (typeof v === "string" ? v : "");
 const typedNumber = (s: string) => Number((s || "").replace(/[,\s£$€]/g, ""));
 
 /** Read the inventory by CHECKING it, not by asserting the wire's shape. */
-function fromWire(raw: unknown): { lines: Line[]; pool: PoolMember[]; note: string; months: string[]; units: Units | null; error?: string } {
+function fromWire(raw: unknown): { lines: Line[]; pool: PoolMember[]; note: string; months: string[]; units: Units | null; deferred: Deferred[]; error?: string } {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  if (typeof o.error === "string") return { lines: [], pool: [], note: "", months: [], units: null, error: o.error };
+  if (typeof o.error === "string") return { lines: [], pool: [], note: "", months: [], units: null, deferred: [], error: o.error };
   const lines = (Array.isArray(o.lines) ? o.lines : []).map((row) => {
     const l = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
     return {
@@ -107,6 +108,10 @@ function fromWire(raw: unknown): { lines: Line[]; pool: PoolMember[]; note: stri
   return {
     lines, pool, note: str(o.note), units,
     months: (Array.isArray(o.months) ? o.months : []).filter((m): m is string => typeof m === "string"),
+    deferred: (Array.isArray(o.deferred) ? o.deferred : []).map((row) => {
+      const d = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+      return { kind: str(d.kind), fromAcu: num(d.fromAcu), toAcu: num(d.toAcu), at: str(d.at) };
+    }).filter((d) => d.kind && d.toAcu > d.fromAcu),
   };
 }
 
@@ -132,6 +137,7 @@ function previewFromWire(raw: unknown): Preview | null {
 export default function AdminCosts() {
   const [lines, setLines] = useState<Line[]>([]);
   const [pool, setPool] = useState<PoolMember[]>([]);
+  const [deferred, setDeferred] = useState<Deferred[]>([]);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -157,7 +163,7 @@ export default function AdminCosts() {
       const res = await authedFetch(`/api/admin/costs${qs}`);
       const parsed = fromWire(await res.json());
       if (!res.ok || parsed.error) throw new Error(parsed.error || `Could not read the costs (${res.status})`);
-      setLines(parsed.lines); setPool(parsed.pool); setNote(parsed.note);
+      setLines(parsed.lines); setPool(parsed.pool); setNote(parsed.note); setDeferred(parsed.deferred);
       setMonths(parsed.months);
       setUnits(parsed.units);
       if (parsed.units?.month) setMonth(parsed.units.month);
@@ -282,6 +288,35 @@ export default function AdminCosts() {
       </p>
       {note && <p className="mb-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-xs text-amber-200">{note}</p>}
       {error && <p className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-xs text-rose-200">{error}</p>}
+
+      {/* RISES NOBODY IS PAYING YET. The table below shows what the platform
+          charges; these lines say where a customer is charged LESS than that,
+          and until when. Without this panel the price in the table and the
+          price on a customer's bill disagree with nothing to explain the gap. */}
+      {deferred.length > 0 && (
+        <div className="mb-4 rounded-lg border border-sky-500/25 bg-sky-500/[0.06] p-3">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 text-sky-400" />
+            <p className="text-xs font-semibold text-sky-200">Rises waiting for the next billing cycle</p>
+          </div>
+          <ul className="space-y-1">
+            {deferred.map((d) => (
+              <li key={d.kind} className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="font-mono font-semibold text-white">{d.kind}</span>
+                <span className="text-slate-400">{d.fromAcu} → {d.toAcu} ACU</span>
+                <span className="text-slate-500">corrected {d.at.slice(0, 10)}</span>
+                <Pill tone="info">deferred</Pill>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+            New sign-ups and renewals pay the new price today. A customer whose current cycle was paid for before the
+            correction keeps the old one until they renew, because the allowance in that cycle was bought at it. The
+            exception is a correction so large that the old price would fall below the 2× margin floor — that one
+            applies immediately, and says so at the moment it charges.
+          </p>
+        </div>
+      )}
 
       {pool.length > 0 && (
         <div className="mb-4 rounded-lg border border-white/10 bg-ink-900/40 p-3">
@@ -574,6 +609,14 @@ export default function AdminCosts() {
               We believe £{preview.currentCostGbp.toFixed(4)} today, charging {preview.currentPriceAcu} ACUs.
               Applying this charges {preview.newPriceAcu} ACUs.
             </p>
+            {preview.direction === "dearer" && (
+              <p className="mt-1.5 flex items-start gap-1.5 text-[10px] leading-relaxed text-amber-200">
+                <Clock className="mt-px h-3 w-3 shrink-0" />
+                A rise does not reach a cycle somebody has already paid for. New sign-ups and renewals pay it today;
+                everyone else keeps {preview.currentPriceAcu} ACUs until they renew — unless holding that price would
+                put it below the 2× margin floor, in which case it applies at once and the charge says why.
+              </p>
+            )}
             <button
               type="button" onClick={() => void reconcile("reconcile")}
               disabled={busy !== ""}

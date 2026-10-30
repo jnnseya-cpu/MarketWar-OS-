@@ -218,8 +218,28 @@ test("the wallet stamp is written in the same transaction as the credit", () => 
   const wallet = codeOf(readFileSync("src/backend/wallet.ts", "utf8"));
   // Inside the transaction's `next` object, not a second write afterwards: a
   // separate write can fail on its own and leave a credit with no stamp.
-  assert.match(wallet, /\.\.\.\(stamp \? \{ lastCredit: stamp \} : \{\}\),\n\s*updatedAt: now,/,
-    "lastCredit must be part of the transactional wallet write");
+  // SCOPED TO THE WRITE, BROAD INSIDE IT. This used to require `lastCredit` to
+  // sit on the line immediately above `updatedAt`, which is adjacency rather
+  // than the thing that matters — and it broke the day a second field was added
+  // between them, reporting a defect in a change that was correct. What matters
+  // is that the stamp is part of the SAME object handed to `tx.set`, so nothing
+  // may come between it and the end of that object except more properties.
+  const stampAt = wallet.indexOf("...(stamp ? { lastCredit: stamp } : {}),");
+  assert.ok(stampAt > 0, "lastCredit must be written as part of the wallet object");
+  const toEnd = wallet.slice(stampAt, stampAt + 800);
+  const closes = toEnd.indexOf("updatedAt: now,");
+  assert.ok(closes > 0, "the stamp must be inside the object that carries updatedAt");
+  const between = toEnd.slice(0, closes);
+  for (const escape of ["tx.set(", "await ", "return ", "});"]) {
+    assert.ok(!between.includes(escape),
+      `lastCredit is separated from the transactional write by \`${escape}\` — a separate write can fail on its own and leave a credit with no stamp`);
+  }
+  // THE CYCLE ANCHOR TRAVELS WITH IT, for the same reason and in the same
+  // object: it is what decides whether a deferred price rise has reached this
+  // customer yet (backend/price-locks.ts), and a credit whose anchor failed to
+  // write would put them back on the list price mid-cycle.
+  assert.ok(between.includes("subscriptionCreditedAt: stamp.at"),
+    "the subscription cycle anchor must be written in the same transaction as the credit");
   assert.match(wallet, /const stamp = credit > 0 && reversal === 0 && outcome\.payment/,
     "only a credit-bearing payment is a sale — a refund reported as a Purchase is the worst version of this");
 });
