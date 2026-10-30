@@ -185,6 +185,27 @@ const COST_TABLE = {
 export const ACTION_COST_ACU: { readonly [K in keyof typeof COST_TABLE]: number } = COST_TABLE;
 export type ActionKind = keyof typeof COST_TABLE;
 
+/**
+ * What the pricing law WOULD charge for a given provider cost, without
+ * changing anything.
+ *
+ * Exported so a reconciliation can show the owner the price an invoice implies
+ * before committing to it. The first version of that preview applied an
+ * override, read the new price and put the table back — a global mutation to
+ * answer a hypothetical, on the table that decides what customers are charged,
+ * with a window where a concurrent request would have been billed the preview.
+ * This is the same law with no side effects.
+ */
+export function priceForCost(key: string, costGbp: number): number {
+  if (!(key in PROVIDER_COST_GBP)) return 0;
+  const k = key as keyof typeof PROVIDER_COST_GBP;
+  const cost = Number.isFinite(costGbp) && costGbp >= 0 ? costGbp : 0;
+  return Math.max(
+    requiredAcus(cost).requiredAcus,
+    minimumAcusFor({ providerCostGbp: cost, persistsArtifact: PERSISTS[k] }).minAcus,
+  );
+}
+
 /** The provider costs this platform believes it is paying, after any override. */
 export function providerCostGbp(): Record<string, number> {
   return { ...PROVIDER_COST_GBP, ...costOverrides };

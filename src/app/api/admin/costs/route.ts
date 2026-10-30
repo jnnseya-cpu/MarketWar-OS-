@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuthEnforced, rateLimit, clientKey } from "@/backend/guard";
 import { costInventory, setProviderCost, clearProviderCost } from "@/backend/provider-costs";
 import { poolStatus } from "@/backend/avatar-gateway";
+import { unitsForMonth, recentMonths, reconcile } from "@/backend/cost-reconciliation";
 import { record as auditRecord, actorFrom } from "@/backend/audit-log";
 
 // WHAT WE PAY OUR PROVIDERS — correctable from the invoice, without a deploy.
@@ -45,7 +46,14 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   try {
     const inv = await costInventory();
-    return NextResponse.json({ ...inv, pool: poolStatus() }, { headers: { "Cache-Control": "no-store" } });
+    // THE DENOMINATOR, which is the whole reason a correction was hard. An
+    // invoice total is useless without the number of units it bought, and
+    // until now that number was on no screen anywhere.
+    const months = recentMonths();
+    const asked = (req.nextUrl.searchParams.get("month") || "").trim();
+    const month = months.includes(asked) ? asked : months[0];
+    const units = await unitsForMonth(month);
+    return NextResponse.json({ ...inv, pool: poolStatus(), months, units }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Could not read the cost table" }, { status: 503 });
   }
@@ -67,8 +75,45 @@ export async function POST(req: NextRequest) {
   }
   const body: Record<string, unknown> = { ...raw };
   const key = typeof body.key === "string" ? body.key.trim() : "";
-  const costGbp = typeof body.costGbp === "number" ? body.costGbp : Number(body.costGbp);
   if (!key) return NextResponse.json({ error: "key is required" }, { status: 400 });
+
+  // ----------------------------------------------------------------------
+  // RECONCILE — an invoice total and a unit count, turned into a cost.
+  //
+  // `preview` computes and shows. `apply` commits. They are separate words on
+  // purpose: the thing that changes what every customer is charged should be
+  // read first and pressed second, never done as a side effect of asking what
+  // it would be.
+  // ----------------------------------------------------------------------
+  if (body.action === "reconcile" || body.action === "preview") {
+    const r = reconcile({
+      key,
+      units: Number(body.units),
+      invoiceAmount: Number(body.invoiceAmount),
+      currency: typeof body.currency === "string" ? body.currency : "GBP",
+      fxToGbp: body.fxToGbp === undefined ? undefined : Number(body.fxToGbp),
+    });
+    if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
+    if (body.action === "preview") return NextResponse.json({ preview: r });
+
+    const applied = await setProviderCost(key, r.costPerUnitGbp, auth.uid || "admin", {
+      source: "invoice",
+      month: typeof body.month === "string" ? body.month : undefined,
+      units: r.units,
+      invoiceAmount: r.invoiceAmount,
+      currency: r.currency,
+      fxToGbp: r.fxToGbp,
+    });
+    if (!applied.ok) return NextResponse.json({ error: applied.error }, { status: applied.status });
+    auditRecord({
+      ...actorFrom(req, auth.uid), action: "provider_cost.reconciled", resource: "provider_cost", resourceId: key,
+      before: { acu: String(applied.wasAcu) },
+      after: { acu: String(applied.nowAcu), costGbp: String(applied.costGbp), invoice: `${r.currency} ${r.invoiceAmount}`, units: String(r.units) },
+    });
+    return NextResponse.json({ ...applied, preview: r, note: r.verdict });
+  }
+
+  const costGbp = typeof body.costGbp === "number" ? body.costGbp : Number(body.costGbp);
 
   const r = await setProviderCost(key, costGbp, auth.uid || "admin");
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
