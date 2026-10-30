@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   AVATAR_PROVIDERS, AVATAR_DIMENSIONS, avatarGatewayConfigured, avatarRoster, billableMinutes,
   configuredProvider, gateAvatar, getAvatarRender, getTranslation, ownedRender, renderAvatar,
+  planCommercial, renderCommercial,
   restrictedUse, startTranslation, translationLanguages, wouldCallProvider,
   type AvatarAspect,
 } from "@/backend/avatar-gateway";
@@ -19,6 +20,8 @@ import { meterAction, creditAcus, ACTION_COST_ACU } from "@/backend/wallet";
 // POST { action: "revoke" }             → withdraw one; the record is kept
 // POST { action: "check" }              → would this render be allowed, and why not
 // POST { action: "render" }             → render it
+// POST { action: "storyboard" }         → split a script into beats, free
+// POST { action: "commercial" }         → render those beats as ONE video
 //
 // THE ORDER OF THE GATES IS THE DESIGN. Category first, because a medical or
 // financial synthetic endorsement costs the customer their ad account rather
@@ -214,7 +217,147 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  if (action !== "render") return NextResponse.json({ error: "Unknown action — use consent, revoke, check, render or translate." }, { status: 400 });
+  // ----------------------------------------------------------------------
+  // A CONTINUOUS COMMERCIAL, UP TO A MINUTE, FROM FIFTEEN-SECOND BEATS
+  //
+  // THE OWNER'S BRIEF: *"a very professional and commercial video of up to 1
+  // minute no stop if 15 second each with a tool to make them together as 1
+  // video."*
+  //
+  // `plan` is the whole feature's honesty: it splits the script, says how long
+  // each scene runs and refuses one that would overrun BEFORE anything is
+  // metered. The same function answers the screen's preview, so the beats the
+  // customer approved are the beats that get rendered.
+  //
+  // The order here is the render path's order, for the render path's reasons:
+  // gates, then the wallet, then the provider. Nothing touches the wallet until
+  // a refusal is impossible.
+  // ----------------------------------------------------------------------
+  if (action === "commercial" || action === "storyboard") {
+    const asked = {
+      brandId, script: str("script"),
+      avatarKind: (str("avatarKind") === "custom" ? "custom" : "stock") as "stock" | "custom",
+      avatarId: str("avatarId") || undefined,
+      personName: str("personName") || undefined,
+      voiceId: str("voiceId") || undefined,
+      aspect: (["9:16", "16:9", "1:1"] as const).includes(str("aspect") as AvatarAspect) ? (str("aspect") as AvatarAspect) : ("9:16" as AvatarAspect),
+      territory: str("territory") || undefined,
+      platform: str("platform") || undefined,
+      paidAd: body.paidAd === true,
+      audioUrl: undefined as string | undefined,
+      beatSeconds: typeof body.beatSeconds === "number" ? body.beatSeconds : undefined,
+      chargedAcu: 0,
+      nowISO,
+    };
+    const clone = str("voiceSource") === "cloned";
+    if (clone) asked.audioUrl = "pending";
+
+    const plan = planCommercial({ script: asked.script, beatSeconds: asked.beatSeconds });
+
+    // `storyboard` is the free preview: the split, the seconds and the price,
+    // with nothing rendered and nothing charged. A customer who can see the
+    // split can fix the script; one who cannot pays for a video that runs four
+    // seconds over and gets cut off.
+    if (action === "storyboard") {
+      if (!plan.ok) return NextResponse.json({ error: plan.error, hint: plan.hint, charged: false }, { status: 400 });
+      const sceneProvider = configuredProvider("scenes");
+      return NextResponse.json({
+        ok: true,
+        beats: plan.beats, totalSeconds: plan.totalSeconds, minutes: plan.minutes,
+        dividedBy: plan.dividedBy, warnings: plan.warnings,
+        acus: sceneProvider ? ACTION_COST_ACU.avatar * plan.minutes : 0,
+        continuous: Boolean(sceneProvider),
+        provider: sceneProvider?.label || null,
+        note: sceneProvider
+          ? `${plan.beats.length} scenes, ${plan.totalSeconds}s, rendered by ${sceneProvider.label} as ONE continuous video — ${ACTION_COST_ACU.avatar * plan.minutes} ACUs. Nothing has been charged yet.`
+          : "No provider that can render several scenes in one video is configured, so this would come back as a storyboard to film rather than a video. Nothing would be charged.",
+        charged: false,
+      });
+    }
+
+    // 1. GATES, before the wallet. A refusal must never cost anything.
+    const cGate = await gateAvatar(asked);
+    if (!cGate.ok) return NextResponse.json({ error: cGate.error, hint: cGate.hint, charged: false }, { status: 400 });
+    if (!plan.ok) return NextResponse.json({ error: plan.error, hint: plan.hint, charged: false }, { status: 400 });
+
+    // 2. WALLET — per minute, like every presenter render, and only when a
+    //    provider that can do scenes will actually be called.
+    const willRender = configuredProvider("scenes") !== null;
+    let cCharged = false;
+    const refund = async (acus: number) => {
+      if (acus > 0 && access.ok && access.uid) { try { await creditAcus(access.uid, acus); return true; } catch { return false; } }
+      return false;
+    };
+    if (willRender) {
+      const meter = await meterAction(access, "avatar", plan.minutes);
+      if (!meter.allowed) return NextResponse.json({ error: meter.error, balanceAcu: meter.balanceAcu, charged: false, minutes: plan.minutes }, { status: meter.status });
+      cCharged = meter.metered;
+    }
+    let taken = cCharged ? ACTION_COST_ACU.avatar * plan.minutes : 0;
+
+    // 2b. ONE VOICE TRACK PER SCENE, when the customer's own voice is used.
+    //
+    // A single-take render needs one track. A four-scene commercial needs four,
+    // because each scene lip-syncs to its own — one long track handed to four
+    // scenes would have every scene start at the beginning of it. Each is
+    // metered per 1,000 characters, which is how ElevenLabs bills us.
+    const tracks: string[] = [];
+    if (clone && willRender) {
+      if (!voiceConfigured()) {
+        await refund(taken);
+        return NextResponse.json({ error: "A cloned voice needs ELEVENLABS_API_KEY. Set it in the admin account, or pick one of the provider's own voices.", charged: false, note: taken ? "The presenter minutes were refunded." : undefined }, { status: 400 });
+      }
+      if (!storageConfigured()) {
+        await refund(taken);
+        return NextResponse.json({ error: "A cloned voice has to be hosted somewhere the presenter provider can fetch it, and no storage bucket is configured. Set FIREBASE_STORAGE_BUCKET, or pick one of the provider's own voices.", charged: false, note: taken ? "The presenter minutes were refunded." : undefined }, { status: 400 });
+      }
+      for (const beat of plan.beats) {
+        const units = billableUnits(beat.text);
+        const sm = await meterAction(access, "voice", units);
+        if (!sm.allowed) {
+          await refund(taken);
+          return NextResponse.json({ error: sm.error, balanceAcu: sm.balanceAcu, charged: false, note: `Everything taken for this commercial has been put back — scene ${beat.index} of ${plan.beats.length} could not be voiced, and a commercial missing one scene is not a commercial.` }, { status: sm.status });
+        }
+        taken += sm.metered ? ACTION_COST_ACU.voice * units : 0;
+        const speech = await textToSpeech({ text: beat.text, voiceId: str("elevenVoiceId") || undefined });
+        if (!speech.ok || !speech.audio) {
+          await refund(taken);
+          return NextResponse.json({ error: speech.error || `The voice for scene ${beat.index} could not be generated.`, charged: false, note: "Everything taken for this commercial has been put back." }, { status: 502 });
+        }
+        const hostedTrack = await uploadPublicMedia(Buffer.from(speech.audio), {
+          contentType: "audio/mpeg", ext: "mp3", keyPrefix: "presenter-voice",
+          nameSeed: `${brandId}|${beat.index}|${beat.text}|${str("elevenVoiceId")}`,
+        });
+        if (!hostedTrack) {
+          await refund(taken);
+          return NextResponse.json({ error: `The voice for scene ${beat.index} was generated but could not be hosted, so the presenter has nothing to lip-sync to.`, charged: false, note: "Everything taken for this commercial has been put back." }, { status: 503 });
+        }
+        tracks.push(hostedTrack);
+      }
+    }
+    // Never send the sentinel to a provider — it exists only to make the
+    // consent gate fire before the tracks have been generated.
+    asked.audioUrl = undefined;
+
+    // 3. RENDER. One request, every scene, one video back.
+    asked.chargedAcu = cCharged ? ACTION_COST_ACU.avatar * plan.minutes : 0;
+    const made = await renderCommercial({ ...asked, ...(tracks.length ? { beatAudioUrls: tracks } : {}) });
+
+    // 4. A PROVIDER FAILURE REFUNDS ITSELF, including every voice track that
+    //    was paid for on the way to a video that does not exist.
+    if (!made.ok) {
+      const putBack = await refund(taken);
+      return NextResponse.json({
+        error: made.error, hint: made.hint,
+        charged: taken > 0 && !putBack,
+        refunded: putBack,
+        note: putBack ? `The provider failed, so the ${taken} ACUs have been put back. You have not paid for a video you did not get.` : undefined,
+      }, { status: 502 });
+    }
+    return NextResponse.json({ ...made, charged: cCharged });
+  }
+
+  if (action !== "render") return NextResponse.json({ error: "Unknown action — use consent, revoke, check, render, commercial, storyboard or translate." }, { status: 400 });
 
   const avatarKind = str("avatarKind") === "custom" ? "custom" : "stock";
   const aspect: AvatarAspect = (["9:16", "16:9", "1:1"] as const).includes(str("aspect") as AvatarAspect)

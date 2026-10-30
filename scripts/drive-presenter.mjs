@@ -259,6 +259,98 @@ try {
   });
   check("a custom avatar with no consent on record is refused", noConsent.status === 400, `status ${noConsent.status}`);
   check("and the provider was not called for it", seen.generate.every((g) => g?.video_inputs?.[0]?.character?.avatar_id !== "never"), "no render started");
+
+  // --- 11. A CONTINUOUS COMMERCIAL --------------------------------------
+  //
+  // THE OWNER'S BRIEF: *"a very professional and commercial video of up to 1
+  // minute no stop if 15 second each with a tool to make them together as 1
+  // video."*
+  //
+  // The thing to prove here is the architecture, not the arithmetic: FOUR
+  // SCENES LEAVE IN ONE REQUEST and come back as one video. If this driver
+  // sees four requests, the feature is four clips somebody still has to join.
+  const COMMERCIAL = [
+    "Your gutters are blocked and you have not looked since spring.",
+    "One storm is all it takes for the water to find its way inside.",
+    "We clear them, photograph the lot, and send you the pictures the same day.",
+    "Book this week and the survey is free.",
+  ].join("\n\n");
+
+  // The free preview first, because that is the order a person uses it in.
+  const planned = await post({ brandId: BRAND, action: "storyboard", script: COMMERCIAL });
+  check(
+    "planning the scenes is FREE and charges nothing",
+    planned.status === 200 && planned.body?.charged === false && Array.isArray(planned.body?.beats),
+    `${planned.body?.beats?.length} scenes, ${planned.body?.totalSeconds}s, ${planned.body?.acus} ACUs quoted`,
+  );
+  check(
+    "the preview says it will be ONE continuous video, and names who renders it",
+    planned.body?.continuous === true && typeof planned.body?.provider === "string",
+    `${planned.body?.provider} renders it`,
+  );
+  const quotedSeconds = planned.body?.totalSeconds;
+  const quotedAcus = planned.body?.acus;
+
+  const requestsBefore = seen.generate.length;
+  seen.statusCalls = 0;
+  const made = await post({
+    brandId: BRAND, action: "commercial", script: COMMERCIAL,
+    avatarKind: "stock", avatarId: "ava_1", voiceId: "v_1", aspect: "16:9",
+  });
+  const asSent = seen.generate[seen.generate.length - 1];
+
+  check(
+    "ONE REQUEST CARRIED EVERY SCENE — not four renders and a joiner",
+    seen.generate.length === requestsBefore + 1 && Array.isArray(asSent?.video_inputs) && asSent.video_inputs.length === 4,
+    `${seen.generate.length - requestsBefore} request(s), ${asSent?.video_inputs?.length} scenes in it`,
+  );
+  check(
+    "every scene carries its own words, in order",
+    asSent?.video_inputs?.map((v) => v?.voice?.input_text).join(" ") === COMMERCIAL.replace(/\n\n/g, " "),
+    "nothing lost, nothing reordered",
+  );
+  check(
+    "and the same presenter and voice in all of them, or the joins would show",
+    new Set(asSent?.video_inputs?.map((v) => v?.character?.avatar_id)).size === 1
+      && new Set(asSent?.video_inputs?.map((v) => v?.voice?.voice_id)).size === 1,
+    `avatar ${asSent?.video_inputs?.[0]?.character?.avatar_id}, voice ${asSent?.video_inputs?.[0]?.voice?.voice_id}`,
+  );
+  check(
+    "the frame the customer chose reached the provider",
+    asSent?.dimension?.width === 1920 && asSent?.dimension?.height === 1080,
+    `${asSent?.dimension?.width}x${asSent?.dimension?.height}`,
+  );
+  check(
+    "the render quotes the same duration the free preview did",
+    made.body?.totalSeconds === quotedSeconds && made.body?.beats?.length === 4,
+    `${made.body?.totalSeconds}s both times`,
+  );
+
+  // And the collection half is the single-take path, untouched: one job, polled
+  // once, hosted, filed. A commercial is a different SPLIT, not a different
+  // pipeline — which is the whole reason it was built this way.
+  const cJobId = made.body?.jobId;
+  await get(`?brandId=${encodeURIComponent(BRAND)}&jobId=${encodeURIComponent(cJobId)}`);
+  const cReady = await get(`?brandId=${encodeURIComponent(BRAND)}&jobId=${encodeURIComponent(cJobId)}`);
+  check(
+    "it is polled and collected by the SAME chain as a single take",
+    cReady.body?.status === "ready" && typeof cReady.body?.videoUrl === "string",
+    `one job, ${seen.statusCalls} status calls, ${cReady.body?.status}`,
+  );
+  check(
+    "charged once, as presenter minutes, for the whole thing",
+    quotedAcus > 0 && made.body?.minutes === 1,
+    `${quotedAcus} ACUs for ${quotedSeconds}s — one billable minute, not four`,
+  );
+
+  // A script that overruns is refused BEFORE the wallet, with the words to cut.
+  const tooLong = Array.from({ length: 200 }, (_, i) => `word${i}`).join(" ");
+  const over = await post({ brandId: BRAND, action: "commercial", script: tooLong, avatarKind: "stock", avatarId: "ava_1" });
+  check(
+    "a script that overruns a minute is refused and costs nothing",
+    over.status === 400 && over.body?.charged === false && /over the 60s/.test(over.body?.error || ""),
+    over.body?.hint?.slice(0, 60),
+  );
 } finally {
   server.close();
   globalThis.fetch = realFetch;

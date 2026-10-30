@@ -12380,3 +12380,155 @@ silent discount on every part-minute.
   and nothing is charged at all, so the authorised path — a rise recorded
   durably, a wallet mid-cycle charged the old price, the same wallet charged the
   new one after a renewal — needs a database and a paying account.
+
+## 48. One continuous commercial, out of fifteen-second beats (§176, 2026-10-30)
+
+**The owner's brief, verbatim.** *"To have these features but to have a very
+professional and commercial video of up to 1 minute no stop if 15 second each
+with a tool to make them together as 1 video."* Offered at the end of §173 and
+taken up with *"Go ahead."*
+
+Four requirements in one sentence: up to 60 seconds, built from ~15-second
+pieces, assembled into **one** file, and **continuous**.
+
+### The architecture, which is the part worth getting right
+
+The obvious reading is "render four clips and stitch them". That is wrong here,
+and it would have taken a month to find out why:
+
+- **Stitching needs ffmpeg.** Serverless has none, so it means a second piece
+  of infrastructure for one feature.
+- **Four renders is four of everything** — jobs, polls, failure modes, refunds,
+  files to keep for ever.
+- **And the joins would show.** Separate renders drift: the presenter's head is
+  in a different position at the end of one clip and the start of the next, the
+  lighting re-seeds, the audio level steps. A cut every fifteen seconds is
+  precisely the *"stop"* the brief rules out.
+
+**The provider already solves it.** `video_inputs` in HeyGen's v2 API is an
+**array of scenes** and the response is one video id — same character, same
+voice, rendered as a single continuous piece. Synthesia's `input` is the same
+shape. Our adapter had always sent an array of exactly one element.
+
+So there is no joiner. The "tool to make them together as 1 video" is **one
+request with several scenes**, and what was actually built is the thing that was
+missing: the split.
+
+```
+Measured by the driver, through the real route, against a stand-in HeyGen:
+  1 request(s), 4 scenes in it
+  one job, 2 status calls, ready
+  180 ACUs for 18.8s — one billable minute, not four
+```
+
+### `shared/storyboard.ts` — the split, and nothing else
+
+Pure, and in `shared/` so the screen can show the customer exactly what will be
+rendered **before anything is charged**. A customer who can see the split can
+fix the script; one who cannot pays for a video that runs four seconds over and
+gets cut off.
+
+**Two ways a script arrives, and the difference is respected rather than
+flattened.** A marketer who has written four beats separated by blank lines has
+already made the editorial decision about where the cuts fall — re-splitting
+that by word count would move their cuts and they would never know why. Prose
+has no such decision in it, so it is divided by pace, at sentence boundaries.
+
+What the split will not do:
+
+| | |
+| --- | --- |
+| **End a beat mid-word** | the one fault a viewer definitely notices. Clause boundaries are preferred; a plain word boundary is the fallback; inside a word is never |
+| **Read "Mr. Patel" or "£4.99" as a sentence end** | a beat that starts mid-name or mid-price |
+| **Truncate a script that overruns** | refused instead, with *how many words to cut* rather than "too long" |
+| **Move an authored cut silently** | an authored beat that runs long is still split, and the warning says so |
+
+**The pace is now one number.** `WORDS_PER_MINUTE` moved to `shared/` and the
+gateway re-exports it, because a screen saying "about 15 seconds" and a wallet
+billing at a different rate is two estimates free to drift.
+
+### The provider table gained a capability, not a workaround
+
+`scenes: boolean`, beside `roster` and `translation`. HeyGen and Synthesia can
+render several scenes as one file; **D-ID's `/talks` cannot**, so it is declared
+`false` rather than faked by concatenation — and `configuredProvider("scenes")`
+filters on it before routing on cost. D-ID is the *cheapest* of the three and
+must still not get this job: routing on cost must never silently remove a
+capability. With nothing scene-capable configured the route hands back a real
+**storyboard to film**, and says which provider is configured and why it cannot
+do it.
+
+### One adapter, not two
+
+`startWith` now takes `Scene[]` instead of a script. A single take is one scene;
+a commercial is several. A second `startCommercialWith` would have been a second
+place for a provider's id scheme, a second set of headers and a second thing to
+forget when a provider changes.
+
+Everything after the render is the single-take path **untouched** — one
+`avatar_renders` job, polled by `getAvatarRender`, hosted on our own storage,
+filed in the work library, refunded if it fails. The commercial is a different
+**split**, not a different pipeline, and the driver proves it is collected by
+the same chain.
+
+### A voice track per scene
+
+A single-take render takes one `audioUrl`. A four-scene commercial needs four,
+because each scene lip-syncs to its own — one long track handed to four scenes
+would have every scene start at the beginning of it. Each is metered per 1,000
+characters, and **a partial set is refused rather than half-used**: a commercial
+that switches between a cloned voice and a stock one halfway through is audibly
+two videos. If any scene's voice fails, everything taken for the commercial is
+put back, because a commercial missing a scene is not a commercial.
+
+### Free to plan, charged to render
+
+`action: "storyboard"` returns the beats, the seconds, the scene count and the
+price, having charged nothing — and a guard asserts it returns **before** the
+first `meterAction`. Charging for the estimate would make the one surface that
+stops a customer paying for an overrunning video the thing they avoid using.
+`planCommercial` answers both the preview and the real charge, so the beats the
+customer approved are the beats that get rendered.
+
+### Verification
+
+- `tests/storyboard.test.mjs` — **17 tests**, built around the ways a split can
+  be confidently wrong rather than around "does it return an array".
+- `npm run drive:presenter` — **45 proven / 0 broken** (was 35), the new ones
+  proving the architecture rather than the arithmetic: one request, four scenes,
+  same presenter and voice throughout, the chosen frame, one job, one charge.
+- A second ordering guard in `features.test.mjs` for the commercial section:
+  gates → wallet → render, the free preview returning before anything is
+  metered, billed as `avatar` minutes from the plan's own duration.
+- **Eight mutants killed**: metering before the gate; charging for the preview;
+  truncating an overrun instead of refusing it; breaking mid-word; ignoring the
+  writer's own cuts; letting D-ID render a commercial; treating an abbreviation
+  as a sentence end; and a partial set of voice tracks.
+
+### Two things found while testing my own tests
+
+1. **The abbreviation test passed with the guard removed.** It used the default
+   fifteen-second beat, so all three sentences fitted in ONE beat and the
+   sentence boundaries were never exercised — a check that passes for a reason
+   unrelated to what it tests. Re-driven at four seconds a beat, where every
+   sentence break is a visible cut, it fails correctly.
+2. **A redundant rule was deleted rather than kept for comfort.** An explicit
+   decimal-point check sat above the "a sentence end is followed by whitespace"
+   rule, and **no input could tell the two apart** — removing it changed nothing
+   any test could see. One rule, documented, with the `£4.99` case proven
+   against it.
+
+### Gaps recorded
+
+- **NOT PROVEN:** HeyGen's and Synthesia's real multi-scene responses. The scene
+  array is in both published APIs and the adapter is driven against a stand-in,
+  but no account exists here to confirm the real thing renders four scenes as
+  one continuous file with no seam. That is the single assumption this feature
+  rests on, and it is the first thing to check when a key is set.
+- **Per-scene framing, backgrounds and B-roll are not exposed.** The providers
+  support a background per scene; the continuity argument says the same framing
+  throughout is usually right, so one aspect and one presenter apply to all
+  scenes. A deliberate restriction, not an oversight.
+- **60 seconds is a hard ceiling.** `MAX_COMMERCIAL_SECONDS` is a constant, not
+  a plan entitlement; a longer film would need the ceiling raised and the beat
+  count with it.
