@@ -214,6 +214,58 @@ check(
   "an earlier version computed the hypothetical by writing it into the live table",
 );
 
+// --- 6. WHAT A CORRECTION DOES NOT TOUCH ------------------------------------
+//
+// THE OWNER'S STATEMENT: *"People will have their subscription and top up if
+// required and our margins remain unchanged."* The third clause is the one
+// worth proving, because §173 made every provider cost correctable from a text
+// field — if a corrected invoice could move the margin on a subscription, then
+// a mis-typed one could sell the platform at a loss for every customer at once.
+//
+// It cannot, and the reason is arithmetic rather than vigilance: a plan's
+// allowance is 20% of the price paid, and no ACU can buy more than a quarter of
+// its own face value in provider cost. 20% x 25% = 5%.
+const sub = await import("../src/backend/subscription.ts");
+
+const worstPerAcu = () => {
+  let worst = { key: "", perAcu: 0 };
+  for (const [key, cost] of Object.entries(wallet.providerCostGbp())) {
+    const acu = wallet.ACTION_COST_ACU[key];
+    if (!acu) continue;
+    const perAcu = cost / acu;
+    if (perAcu > worst.perAcu) worst = { key, perAcu, acu, cost };
+  }
+  return worst;
+};
+
+say("  WHAT A CORRECTION DOES NOT TOUCH:");
+say("");
+const shares = [];
+for (const [label, factor] of [["at today's estimates", 1], ["every line reconciled 4x cheaper", 0.25], ["a provider that doubled its prices", 2]]) {
+  const overrides = {};
+  for (const [k, c] of Object.entries(wallet.providerCostGbp())) overrides[k] = c * factor;
+  if (factor !== 1) wallet.applyProviderCostOverrides(overrides);
+  const w = worstPerAcu();
+  const growth = sub.allPlanEconomics().find((p) => p.id === "growth");
+  const spend = growth.monthlyAcus * w.perAcu;
+  const share = spend / growth.monthlyGbp;
+  shares.push(share);
+  say(`    ${label.padEnd(34)} dearest ACU ${w.key.padEnd(17)} £${w.perAcu.toFixed(5)}/ACU`);
+  say(`    ${" ".repeat(34)} Growth £${growth.monthlyGbp} / ${growth.monthlyAcus} ACU spent in full → £${spend.toFixed(2)} of provider cost, ${((1 - share) * 100).toFixed(1)}% gross`);
+  wallet.applyProviderCostOverrides({});
+}
+say("");
+check(
+  "a reconciliation changes what an ACU BUYS, never what an ACU EARNS",
+  shares.every((s) => Math.abs(s - shares[0]) < 1e-9),
+  `worst-case share of revenue identical at every cost level: ${(shares[0] * 100).toFixed(2)}%`,
+);
+check(
+  "and it is the two rates that guarantee it, not a number anybody typed",
+  Math.abs(shares[0] - sub.ACU_ALLOCATION_RATE / sub.STANDARD_MARKUP) < 1e-9,
+  `${sub.ACU_ALLOCATION_RATE * 100}% allowance x 1/${sub.STANDARD_MARKUP} markup = ${(shares[0] * 100).toFixed(0)}% of subscription revenue, worst case`,
+);
+
 say("");
 say(`drive:reconcile — ${proven} proven, ${broken} broken.`);
 say("");
