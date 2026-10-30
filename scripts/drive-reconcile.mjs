@@ -266,6 +266,66 @@ check(
   `${sub.ACU_ALLOCATION_RATE * 100}% allowance x 1/${sub.STANDARD_MARKUP} markup = ${(shares[0] * 100).toFixed(0)}% of subscription revenue, worst case`,
 );
 
+// --- 7. WHEN A CORRECTION REACHES A CUSTOMER -------------------------------
+//
+// The screen has warned about this since §173: *"A rise reaches everyone
+// immediately, including customers part-way through a month who budgeted on the
+// old price."* Warning is not preventing. A cut is immediate for everybody; a
+// rise waits for each customer's next bill, bounded by the owner's 2x floor.
+const locks = await import("../src/backend/price-locks.ts");
+
+say("");
+say("  WHEN A CORRECTION REACHES A CUSTOMER:");
+say("");
+
+const listLlm = wallet.ACTION_COST_ACU.llm;
+const paidBeforeRise = { cycle: "monthly", planId: "growth", subscriptionCreditedAt: "2020-01-01T00:00:00.000Z" };
+const paidAfterRise = { cycle: "monthly", planId: "growth", subscriptionCreditedAt: new Date().toISOString() };
+const topUpOnly = { cycle: null, planId: "free" };
+
+const timingUp = await locks.notePriceChange("llm", listLlm, listLlm + 3, "drive");
+// The live table has to agree with the record, or the rule correctly ignores it.
+wallet.applyProviderCostOverrides({ llm: wallet.providerCostGbp().llm });
+const raised = locks.riseFor("llm");
+const held = locks.lockedPriceAcu({ currentAcu: listLlm + 3, providerCostGbp: wallet.providerCostGbp().llm, rise: raised, wallet: paidBeforeRise, nowISO: new Date().toISOString() });
+const fresh = locks.lockedPriceAcu({ currentAcu: listLlm + 3, providerCostGbp: wallet.providerCostGbp().llm, rise: raised, wallet: paidAfterRise, nowISO: new Date().toISOString() });
+const noPlan = locks.lockedPriceAcu({ currentAcu: listLlm + 3, providerCostGbp: wallet.providerCostGbp().llm, rise: raised, wallet: topUpOnly, nowISO: new Date().toISOString() });
+
+say(`    a rise from ${listLlm} to ${listLlm + 3} ACUs was recorded as ${timingUp}`);
+say(`      mid-cycle customer, paid before it   pays ${held.acu} ACU  ${held.deferred ? "(held)" : "(current)"}`);
+say(`      renewed after it                     pays ${fresh.acu} ACU  (${fresh.refusedDeferral || "current"})`);
+say(`      no subscription, top-ups only        pays ${noPlan.acu} ACU  (${noPlan.refusedDeferral || "current"})`);
+say("");
+
+check(
+  "a rise does not reach a cycle that was already paid for",
+  held.acu === listLlm && held.deferred === true,
+  `${held.acu} ACU rather than ${listLlm + 3}`,
+);
+check(
+  "but a renewal after it pays the new price, and so does a wallet with no cycle to protect",
+  fresh.acu === listLlm + 3 && noPlan.acu === listLlm + 3,
+  "a deferral protects an allowance already bought, nothing else",
+);
+
+// THE FLOOR OUTRANKS THE COURTESY. A supplier that triples its rate is not
+// absorbed for a month across every customer at once.
+const tripled = wallet.providerCostGbp().llm * 3;
+const refused = locks.lockedPriceAcu({ currentAcu: listLlm + 3, providerCostGbp: tripled, rise: raised, wallet: paidBeforeRise, nowISO: new Date().toISOString() });
+check(
+  "a correction too large to absorb applies IMMEDIATELY, and says why",
+  refused.deferred === false && refused.refusedDeferral === "floor",
+  refused.why.slice(0, 110),
+);
+
+const timingDown = await locks.notePriceChange("llm", listLlm + 3, Math.max(1, listLlm - 1), "drive");
+check(
+  "and a cut cancels the deferral rather than holding anyone above the new price",
+  timingDown === "cleared" && locks.riseFor("llm") === null,
+  `recorded as ${timingDown}; nothing deferred now`,
+);
+wallet.applyProviderCostOverrides({});
+
 say("");
 say(`drive:reconcile — ${proven} proven, ${broken} broken.`);
 say("");

@@ -12259,3 +12259,124 @@ of the subscription itself:
 
 Neither is a margin risk at current scale, and neither is hidden. Recorded here
 so the 95% is never quoted as the whole picture.
+
+## 47. A cut reaches you today; a rise waits for your next bill (§175, 2026-10-30)
+
+**Where this came from.** It was offered at the end of §173 and taken up with
+*"Go ahead."* The reconciliation screen has carried this warning since the day
+it shipped:
+
+> A rise reaches everyone immediately, including customers part-way through a
+> month who budgeted on the old price.
+
+**Printing a warning is not preventing the thing it warns about.** A customer on
+a £49 plan who planned their month around 980 ACUs at 5 ACUs a call does not
+care that our supplier moved its rate on the 14th. From where they are sitting,
+the thing they bought got 40% smaller with no notice — and §173 made that a
+consequence of somebody typing in a text field.
+
+### The rule
+
+- **A CUT applies the moment it is applied.** Immediately, to everybody.
+- **A RISE applies at the customer's next billing cycle.** The allowance already
+  paid for keeps the purchasing power it was sold with.
+
+The asymmetry is in the mechanism rather than in a special case: **only a rise
+is recorded.** `notePriceChange` writes a record when the price goes up and
+deletes one when it comes down, so "no record" means "the list price is the
+price", which is exactly what makes a cut immediate with no code to decide it.
+
+A cut on a line that had a deferred rise **cancels** the deferral — otherwise
+the customers being protected at the old price would be held *above* the price
+everybody else now pays, and a protection would have turned into a penalty.
+
+### The one place it bends, and why it has to
+
+Two owner directives genuinely meet here. The pricing law says margin on an AI
+action is **never below 100%** — at least 2× provider cost. If a supplier
+triples its rate, honouring the old price is not a thinner margin, it is a
+**loss on every call for up to a month across every customer at once**.
+
+So the deferral is bounded by the floor rather than by optimism: a rise is
+deferred only while the old price still clears `MARKUP_FLOOR` against the **new**
+cost. A correction too large for that applies immediately, and the wallet is
+told why at the moment it is charged — the supplier moved by more than the
+platform can absorb. The boundary is computed from the law, and a test pins it
+at exactly 2×, just inside and just outside.
+
+### What "your next billing cycle" means to a wallet
+
+`lastCredit` could not answer this: **a top-up overwrites it**, so one £5
+purchase erased every trace of when the plan was last billed. A new
+`subscriptionCreditedAt` is written in the same transaction as the credit and
+**only for a plan payment**, because buying credits is not starting a new cycle
+— treating it as one would hand the customer the new price in the middle of a
+month they had already paid for.
+
+Three cases are decided deliberately rather than by accident:
+
+| Wallet | What it pays | Why |
+| --- | --- | --- |
+| On a plan, paid before the rise | the **old** price | the allowance was bought at it |
+| On a plan, renewed after the rise | the new price | they bought at the new one |
+| No subscription — free, or top-ups only | the new price | a deferral protects an allowance, and a top-up buys ACUs rather than a fixed basket of actions |
+| Written before the anchor existed | the **old** price | absent reads as "paid before", the customer-favouring reading; an existing customer must never lose protection because a field was added |
+
+And a deferral **expires on its own** — 40 days for a monthly cycle, 400 for an
+annual one, which was paid for up front. A lapsed customer who never renews
+would otherwise hold the old price for ever, because no next payment ever
+arrives to close it.
+
+### The defect this was always going to produce, headed off
+
+The two doors — `canAffordAction` and `meterAction` — must size the charge from
+the **same** price. A check at the list price with a charge at the locked one
+refuses work the customer could afford; the reverse starts work they cannot pay
+for. That is this repository's oldest defect class, so:
+
+- both doors go through `unitPriceAcu`, and
+- both convert price × units through **one** named function, `chargeFor`, so
+  "price times units" cannot drift into two different roundings.
+
+A test reads the single assignment in each door and fails if the figure being
+checked or debited comes from anywhere but the resolver. **The first version of
+that test was too loose and let a mutant through** — it accepted
+`unitPriceAcu` appearing anywhere in the body, so replacing the one line that
+mattered passed. Scoped to the exact assignment, both mutants die.
+
+**`chargeFor` rounds a half UP, and that matters**: presenter video is charged
+per minute and a ninety-second render is 1.5 of them. Rounding down there is a
+silent discount on every part-minute.
+
+### Verification
+
+- `tests/price-locks.test.mjs` — **14 tests**. The rule is a pure function so
+  every branch is reachable without a database, a clock or an admin session.
+- `npm run drive:reconcile` — **21 proven / 0 broken**, now printing what three
+  different customers pay for the same action on the same day.
+- **Eight mutants killed**: sizing the charge from the list price in either
+  door; dropping the 2× floor check; reading an absent anchor as "no
+  protection"; a cut that no longer cancels a deferral; a deferral that never
+  expires; a superseded rise still honoured; and `chargeFor` rounding down.
+- **An existing guard broke, and the guard was wrong rather than the change.**
+  `analytics-funnel` required `lastCredit` to sit on the line immediately above
+  `updatedAt` — adjacency as a proxy for "inside the transactional write" — so
+  adding a field between them reported a defect in a correct change. Rescoped to
+  the write and kept broad inside it, as §171 learnt to do, and re-proven
+  against the stamp being moved out of the transaction entirely.
+
+### Gaps recorded
+
+- **CONFLICT, resolved in favour of the floor.** The deferral is a courtesy; the
+  2× margin law is not. A correction too large to absorb reaches customers
+  immediately. The alternative — absorbing it — would breach a stated owner
+  directive, so it is not available.
+- **Quotes elsewhere still show the list price.** 67 call sites read
+  `ACTION_COST_ACU` to say what an action will cost. During a deferral a
+  protected customer is therefore quoted *higher* than they are charged, which
+  errs in their favour; the charge is the locked one. Carrying the wallet's own
+  price to every quoting surface is a sweep, not a fix, and is not done.
+- **NOT PROVEN end to end.** With no Firebase every caller is metering-exempt
+  and nothing is charged at all, so the authorised path — a rise recorded
+  durably, a wallet mid-cycle charged the old price, the same wallet charged the
+  new one after a renewal — needs a database and a paying account.
