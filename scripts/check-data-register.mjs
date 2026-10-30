@@ -42,7 +42,16 @@ const unresolved = [];
 for (const file of readdirSync(BACKEND)) {
   if (!file.endsWith(".ts")) continue;
   if (file === "privacy.ts") continue;               // the register itself
-  const text = readFileSync(join(BACKEND, file), "utf8");
+  // PROSE IS NOT CODE. This gate failed once on a doc-comment that explained
+  // the rule by quoting an unresolvable call — a check that fails for a reason
+  // unrelated to what it tests, which is the other defect class this repository
+  // keeps producing. Whole-line comments are dropped before the scan; a comment
+  // in the middle of a line of code is left alone, because dropping it needs a
+  // tokeniser and getting that wrong would hide a real call.
+  const text = readFileSync(join(BACKEND, file), "utf8")
+    .split("\n")
+    .filter((line) => !/^\s*(?:\/\/|\*|\/\*)/.test(line))
+    .join("\n");
 
   // String constants in this file, so `.collection(COLLECTION)` resolves.
   const consts = new Map();

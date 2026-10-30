@@ -11977,3 +11977,193 @@ at price × 20% × 100), and **stop pricing presenter minutes as a line item**,
 since a customer buying campaigns does not shop for video minutes.
 
 Every rate in the pool is still an **estimate** until an invoice replaces it.
+
+## 45. Two invoices, typed in — the denominator nobody could see (§173, 2026-10-30)
+
+**The brief, verbatim.** *"How to [get] two invoices — HeyGen and whichever LLM
+carries the most traffic — and type them in. Every number above is still a guess
+until then, and the llm line is where the leverage is."* Then: *"Yes build the
+reconciliation panel."*
+
+### What §172 actually delivered, and what it left
+
+§172 made every provider cost correctable from the Admin Control Centre. That
+moved the problem rather than solving it. The arithmetic a correction needs is
+one division:
+
+```
+cost per unit = invoice total ÷ units bought in the same month
+```
+
+The owner could see the left-hand number. **Two of the four numbers in that
+division were on no screen anywhere.** `/api/admin/ai-spend` has counted the
+platform's provider calls, dollar for dollar, since the day it was written —
+and **nothing has ever called it**. Presenter minutes were only ever implied by
+an ACU total. So the screen invited a correction and then offered no way to work
+out what to type, which is an invitation to divide by a guess, on a mechanism
+that changes what every customer is charged.
+
+### The denominator, counted where it was counted and derived where it was not
+
+`src/backend/cost-reconciliation.ts` reads four ledgers for a chosen month:
+
+| Line | Source | Where from |
+| --- | --- | --- |
+| `llm` | **counted** | `ai_spend_months/{month}.calls` — incremented once per provider call, platform-wide |
+| `avatar` | **counted** | the `minutes` on every `avatar_renders` row started in the month |
+| `avatar_translate` | **counted** | the same, from `avatar_translations` |
+| everything else | **derived** | `agent_spend` ACUs for that action ÷ its current price |
+
+**The difference is printed, and that is the point.** A derived figure is exact
+only while the price has not moved; correct a cost mid-month and the inferred
+unit count is wrong in proportion. A number that looks measured and is actually
+inferred is exactly how a confident wrong price gets typed in — so a derived
+line carries the label, the arithmetic that produced it and the caveat, and the
+screen renders it differently from a counted one.
+
+**What it cannot see is stated rather than hidden.** `agent_spend` is one
+document per wallet with the rows inside it, so a platform-wide month needs a
+scan, not a query. It is capped at 500 wallets and **the cap is reported**: when
+it is hit, every derived line is a FLOOR rather than a total, and the screen says
+so — because dividing an invoice by a floor OVERSTATES the cost per unit, which
+RAISES the price. The remedy it offers is the right one: type the vendor's own
+unit count over ours.
+
+### Currency is required, not assumed
+
+Our cost table is in pounds. HeyGen and every LLM provider bill in dollars.
+A total pasted without a rate is **roughly a fifth wrong, in the direction
+nobody notices**, applied to every customer's price. So a non-sterling invoice
+with no rate is refused by name — *"An invoice in USD needs the rate you are
+converting at. One USD is how many pounds?"* — and a sterling invoice converts
+at 1 even when the rate box is empty, because refusing *"an invoice in GBP needs
+the rate you are converting at"* is a dead end with no sensible answer.
+
+### Preview and apply are two words on purpose
+
+`reconcile()` is **pure**. It divides, asks the live pricing law what the price
+would become, and returns the sentence a person reads before pressing anything —
+without touching a database, a provider or the price table. An earlier draft of
+this computed the hypothetical by writing the candidate cost INTO the live table
+and reading the answer back out, which priced every customer in flight off a
+number an admin was still thinking about. A test now compares the whole table
+before and after twenty-five previews.
+
+Applying it stores the division alongside the cost — month, invoice, units,
+currency, rate — so that in six months *"why is the LLM line £0.0042?"* is
+answerable without archaeology, and the cost table marks each line as *from an
+invoice* or *estimate*. The change is audited as `provider_cost.reconciled`.
+
+### Two real defects, both on a boundary
+
+**1. A preview that offered a figure the applier would refuse.**
+`setProviderCost` has always refused a cost over £100 per unit as a misread
+invoice. `reconcile()` divides an invoice by a unit count and can land anywhere
+— so an invoice divided by one unit produced a tidy preview, a confident
+verdict and an Apply button that 400s. That is this repository's oldest defect
+class (a value on one side of a boundary that never gets carried across) with
+money attached. The ceiling is now **one exported constant, `MAX_COST_GBP`**,
+checked on both sides, and a test drives the same number through the real
+applier to prove the two ceilings are the same one.
+
+**2. The 4× markup was not held for a cost that was not a round penny.**
+`requiredAcus` rounded the charge to pence BEFORE taking the ceiling, which
+rounds DOWN whenever the markup lands between two pennies: a provider cost of
+£0.337837 asks for £1.3513 and was charged £1.35 — **3.996×, under the stated
+4×**. It never showed because every provider cost in the platform was a
+hand-written constant whose ×4 landed on a round penny. §173 makes costs the
+result of a division, which lands anywhere. The ceiling is now taken on the
+exact figure and the pence derived from it. **Verified against the live table:
+no currently shipped price moves.** The existing provider-cost test passed only
+because every cost it swept was a round one; the new floor sweep crosses
+multiple invoice totals and unit counts.
+
+### A third fault was in my own gate
+
+`check:register` (built in §169) failed on this file — not on a collection, but
+on a **doc comment** that explained the rule by quoting an unresolvable call. A
+check that fails for a reason unrelated to what it tests is the other defect
+class this repository keeps producing, and it is the third time prose has been
+read as code here. Whole-line comments are now stripped before the scan, and the
+gate was re-proven against both an undeclared collection and an unresolvable one
+to show the fix did not blunt it. The reads themselves were restructured so the
+collection names stay literals at the call site.
+
+### Verification
+
+- `tests/cost-reconciliation.test.mjs` — **17 tests**, built around the ways a
+  division can be confidently wrong: a foreign total read at par, a division by
+  zero, a figure the applier would refuse, a derived count labelled as counted,
+  a month list that skips February when today is the 31st, and a preview that
+  moves a price.
+- `npm run drive:reconcile` — **15 proven / 0 broken**, walking the correction
+  through the real route handler, the real refusals and the real pricing law.
+- **Eight mutants killed**: converting a foreign invoice at par; dropping the
+  ceiling guard; labelling derived counts as counted; removing the units check;
+  walking the month list from today instead of the 1st; restoring the
+  round-before-ceiling defect; and computing the preview by mutating the live
+  table (twice, once in a form that compiles).
+- **Driven in a real browser** against a production build, with the route's own
+  response fulfilled from the shipped backend modules so the screen had real
+  numbers in it: the panel renders, the twelve months list, counted lines show
+  as counted and derived ones carry the caveat, the meter block appears, and
+  pressing *Work out the cost per unit* issues the POST and renders
+  `USD 182.4 × 0.79 = £144.10 ÷ 48,300 = £0.00298 per unit` with the verdict
+  *"takes the customer price from 5 to 2 ACUs — 60% cheaper"* and an Apply
+  button labelled with the consequence.
+
+### Three more things driving it found
+
+1. **A line nobody used claimed a figure had been inferred for it.** `video`,
+   `enrich`, `post`, `voice` and `dub` all read *"Inferred from 0 ACUs charged
+   for this action, divided by its current price of 40 ACUs"* beside a zero —
+   which reads as a measurement of nothing. It now says there is nothing to
+   divide and that an invoice covering it needs the count typed in by hand.
+2. **The unit count is displayed with thousands separators, and
+   `Number("48,300")` is NaN.** Typing the figure the screen itself showed into
+   the override box would have silently fallen back to a DIFFERENT denominator.
+   Separators and currency symbols are now stripped, and anything still
+   unreadable is named beside the button rather than replaced.
+3. **The preview shows five decimal places where the table shows four.** An AI
+   call costs a third of a penny; 4dp rounds £0.002981 to £0.0030, and a figure
+   being checked against an invoice should not be rounded into disagreeing
+   with it.
+
+### The worked example, computed by the shipped engine
+
+Illustrative invoice amounts, real arithmetic — nobody has billed us yet:
+
+```
+  the LLM line — where the leverage is
+    USD 182.40 x 0.79 = £144.10 ÷ 48,300 calls = £0.00298 per call
+    we assume   £0.01250  ->  customer pays   5 ACU (£0.05)
+    the invoice £0.00298  ->  customer pays   2 ACU (£0.02)      60% CHEAPER
+
+  the presenter line — the one HeyGen undercuts
+    USD 58.00 x 0.79 = £45.82 ÷ 112.5 minutes = £0.40729 per minute
+    we assume   £0.45000  ->  customer pays 180 ACU (£1.80)
+    the invoice £0.40729  ->  customer pays 163 ACU (£1.63)      9.4% CHEAPER
+```
+
+The owner's reading was right: **the LLM line is where the leverage is.** A
+plausible invoice takes it from 5 ACUs to 2 — a 60% cut on the action that
+carries most of the platform's traffic — while the presenter line, where we are
+HeyGen's reseller, moves 9%.
+
+### What is still a guess
+
+The invoice amounts. Every cost line in the platform remains the built-in
+estimate, deliberately high, and every price derived from one is higher than it
+needs to be. This screen is now the only thing standing between a real invoice
+and a lower price.
+
+### Gaps recorded
+
+- **A price RISE reaches everyone immediately**, including customers part-way
+  through a month who budgeted on the old price. The verdict says so in capitals
+  before the button is pressed, but the asymmetric guard — decreases immediate,
+  increases deferred to the next billing cycle — is offered and not built.
+- **The authorised path is unproven here**: storing a reconciliation, hydrating
+  it into a second instance and reading the counted ledgers all need a database
+  and an admin account. Every refusal is proven; every success is proven only as
+  far as the pure arithmetic and the route's gate.

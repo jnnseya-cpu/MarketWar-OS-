@@ -39,14 +39,23 @@ export function markupToMargin(markupX: number) {
 }
 
 // Pricing formula: Required ACUs = Provider Cost × markup × 100 (never below floor).
+//
+// THE ROUNDING ORDER IS THE WHOLE POINT. This used to round the charge to pence
+// BEFORE taking the ceiling, which rounds DOWN whenever the markup lands between
+// two pennies: a provider cost of £0.337837 asks for £1.3513 and was charged
+// £1.35 — 3.996×, under the stated 4×. Every provider cost in the platform was
+// a hand-written constant whose ×4 landed on a round penny, so it never showed.
+// §173 made costs the result of dividing an invoice by a unit count, which lands
+// anywhere, so the ceiling is now taken on the exact figure and the pence are
+// derived from it. Nothing currently priced moves.
 export function requiredAcus(providerCostGbp: number, markupX = STANDARD_MARKUP) {
   const markup = Math.max(MARKUP_FLOOR, markupX);
-  const customerChargeGbp = round2(Math.max(0, providerCostGbp) * markup);
+  const acus = Math.ceil(Math.max(0, providerCostGbp) * markup * ACU_PER_GBP);
   return {
     providerCostGbp: round2(Math.max(0, providerCostGbp)), // internal only
     markup,
-    customerChargeGbp,
-    requiredAcus: Math.ceil(customerChargeGbp * ACU_PER_GBP),
+    customerChargeGbp: acus / ACU_PER_GBP,
+    requiredAcus: acus,
     ...markupToMargin(markup),
   };
 }

@@ -44,7 +44,23 @@ const DOC = "provider_costs";
 let lastRead = 0;
 const TTL_MS = 60_000;
 
-export type CostOverride = { key: string; costGbp: number; updatedAt: string; updatedBy: string };
+export type CostOverride = {
+  key: string; costGbp: number; updatedAt: string; updatedBy: string;
+  /**
+   * WHERE THIS NUMBER CAME FROM, kept with it.
+   *
+   * A corrected cost outlives the person who typed it. Six months on, "why is
+   * the LLM line £0.0042?" has to be answerable without archaeology — so a
+   * reconciliation stores the month, the invoice and the units it divided by,
+   * and a hand-typed number says that it was one.
+   */
+  source?: "invoice" | "manual";
+  month?: string;
+  units?: number;
+  invoiceAmount?: number;
+  currency?: string;
+  fxToGbp?: number;
+};
 
 async function readDoc(): Promise<Record<string, CostOverride>> {
   if (!adminConfigured || !adminDb) return {};
@@ -62,6 +78,12 @@ async function readDoc(): Promise<Record<string, CostOverride>> {
         costGbp: r.costGbp,
         updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
         updatedBy: typeof r.updatedBy === "string" ? r.updatedBy : "",
+        ...(r.source === "invoice" || r.source === "manual" ? { source: r.source } : {}),
+        ...(typeof r.month === "string" ? { month: r.month } : {}),
+        ...(typeof r.units === "number" ? { units: r.units } : {}),
+        ...(typeof r.invoiceAmount === "number" ? { invoiceAmount: r.invoiceAmount } : {}),
+        ...(typeof r.currency === "string" ? { currency: r.currency } : {}),
+        ...(typeof r.fxToGbp === "number" ? { fxToGbp: r.fxToGbp } : {}),
       };
     }
     return out;
@@ -112,12 +134,27 @@ export async function ensureProviderCosts(): Promise<void> {
   } catch { /* the estimates stand */ }
 }
 
+/**
+ * The most any one of these can plausibly be, per unit.
+ *
+ * Exported because a reconciliation divides an invoice by a unit count and can
+ * land above it — and a preview that offers an Apply button the applier will
+ * refuse is the defect this codebase keeps producing: a value on one side of a
+ * boundary that never reaches the other.
+ */
+export const MAX_COST_GBP = 100;
+
 export type SetCostResult =
   | { ok: true; key: string; costGbp: number; wasAcu: number; nowAcu: number }
   | { ok: false; status: number; error: string };
 
 /** Record what a provider really charges, and re-derive the prices now. */
-export async function setProviderCost(key: string, costGbp: number, by: string): Promise<SetCostResult> {
+export async function setProviderCost(
+  key: string,
+  costGbp: number,
+  by: string,
+  provenance?: { source: "invoice" | "manual"; month?: string; units?: number; invoiceAmount?: number; currency?: string; fxToGbp?: number },
+): Promise<SetCostResult> {
   const known = providerCostGbp();
   if (!(key in known)) {
     return { ok: false, status: 400, error: `${key} is not a provider cost this platform has. Only a line that already exists can be corrected.` };
@@ -125,8 +162,8 @@ export async function setProviderCost(key: string, costGbp: number, by: string):
   if (typeof costGbp !== "number" || !Number.isFinite(costGbp) || costGbp < 0) {
     return { ok: false, status: 400, error: "A provider cost has to be a number of pounds, zero or more." };
   }
-  if (costGbp > 100) {
-    return { ok: false, status: 400, error: "That is over £100 per unit. Every one of these is a per-call, per-minute or per-thousand-character cost, so a number that large is almost certainly a misread invoice — and it would re-derive a price nobody can pay." };
+  if (costGbp > MAX_COST_GBP) {
+    return { ok: false, status: 400, error: `That is over £${MAX_COST_GBP} per unit. Every one of these is a per-call, per-minute or per-thousand-character cost, so a number that large is almost certainly a misread invoice — and it would re-derive a price nobody can pay.` };
   }
   if (!adminConfigured || !adminDb) {
     return { ok: false, status: 503, error: "No database is configured, so a corrected cost has nowhere to live. It would be lost on the next deploy." };
@@ -134,7 +171,15 @@ export async function setProviderCost(key: string, costGbp: number, by: string):
 
   const wasAcu = ACTION_COST_ACU[key as keyof typeof ACTION_COST_ACU] ?? 0;
   await adminDb.collection(COLLECTION).doc(DOC).set({
-    [key]: { key, costGbp, updatedAt: new Date().toISOString(), updatedBy: by || "admin" },
+    [key]: {
+      key, costGbp, updatedAt: new Date().toISOString(), updatedBy: by || "admin",
+      source: provenance?.source || "manual",
+      ...(provenance?.month ? { month: provenance.month } : {}),
+      ...(typeof provenance?.units === "number" ? { units: provenance.units } : {}),
+      ...(typeof provenance?.invoiceAmount === "number" ? { invoiceAmount: provenance.invoiceAmount } : {}),
+      ...(provenance?.currency ? { currency: provenance.currency } : {}),
+      ...(typeof provenance?.fxToGbp === "number" ? { fxToGbp: provenance.fxToGbp } : {}),
+    },
   }, { merge: true });
 
   // Apply to THIS instance immediately so the admin sees the new price in the
@@ -166,6 +211,8 @@ export type CostLine = {
   /** True when that belief is a correction rather than the built-in estimate. */
   corrected: boolean;
   updatedAt?: string;
+  /** How this correction was arrived at, when it is one. */
+  from?: string;
   /** What the customer pays for one unit, after the pricing law. */
   priceAcu: number;
   priceGbp: number;
@@ -208,6 +255,13 @@ export async function costInventory(): Promise<{ lines: CostLine[]; note: string
       costGbp,
       corrected: Boolean(doc[key]),
       ...(doc[key]?.updatedAt ? { updatedAt: doc[key].updatedAt } : {}),
+      ...(doc[key]
+        ? {
+            from: doc[key].source === "invoice" && doc[key].month
+              ? `${doc[key].currency || "GBP"} ${doc[key].invoiceAmount ?? "?"} ÷ ${doc[key].units ?? "?"} units, ${doc[key].month}`
+              : "typed in by hand",
+          }
+        : {}),
       priceAcu,
       priceGbp,
       markup: costGbp > 0 ? Math.round((priceGbp / costGbp) * 10) / 10 : null,
