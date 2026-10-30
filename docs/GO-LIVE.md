@@ -75,7 +75,7 @@ same gate used on every engine commit — do not deploy on a red gate.
 > keys**, and set them there. Values are encrypted before storage, never shown
 > again (a fingerprint identifies which key is loaded), take effect on the
 > server that receives them immediately and on every other instance within a
-> minute, and need **no redeploy**. **92 of the 126 catalogued variables** work
+> minute, and need **no redeploy**. **95 of the 129 catalogued variables** work
 > this way.
 >
 > **FOUR SETS MUST STILL BE SET HERE, AND THE REASON IS NOT POLICY:**
