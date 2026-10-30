@@ -12167,3 +12167,95 @@ and a lower price.
   it into a second instance and reading the counted ledgers all need a database
   and an admin account. Every refusal is proven; every success is proven only as
   far as the pure arithmetic and the route's gate.
+
+## 46. Subscription, top-up, and a margin that cannot move (§174, 2026-10-30)
+
+**The owner's statement, verbatim.** *"People will have their subscription and
+top up if required and our margins remain unchanged."*
+
+Three claims. The first two were already how the platform works — a plan
+allocates monthly ACUs, top-ups are sold in ten tiers from £5, and **nothing
+runs on credit** (`NO ACUs MEANS NO AI`, tested in `tests/ai-effort.test.mjs`).
+The third is the one that needed proving, because §173 made every provider cost
+correctable **from a text field**. If a corrected invoice could move the margin
+on a subscription, a mis-typed one could sell the platform at a loss, quietly,
+for every customer at once.
+
+### It cannot, and the reason is arithmetic rather than vigilance
+
+```
+ACU_ALLOCATION_RATE  20%   a plan's allowance is 20% of the price paid
+STANDARD_MARKUP      4x    no action is priced below 4x provider cost
+                           → one ACU can never buy more than 1/4 of its
+                             own face value in provider spend
+
+20% x 25% = 5%
+```
+
+**A fully-consumed allowance can cost us at most five pence in the pound of
+subscription revenue — on every plan, at every provider cost.** Measured by the
+live engine rather than asserted:
+
+```
+  plan       price   allowance   worst-case provider spend   gross
+  starter    £   19     380 ACU   £  0.95                     95.0%
+  growth     £   49     980 ACU   £  2.45                     95.0%
+  scale      £  149    2980 ACU   £  7.45                     95.0%
+  business   £  399    7980 ACU   £ 19.95                     95.0%
+  enterprise £  999   19980 ACU   £ 49.95                     95.0%
+  corporate  £ 2499   49980 ACU   £124.95                     95.0%
+  global     £ 7499  149980 ACU   £374.95                     95.0%
+```
+
+Identical at today's estimates, with every line reconciled four times cheaper,
+and with a provider that doubled its prices overnight. **A reconciliation
+changes what an ACU BUYS. It cannot change what an ACU EARNS.**
+
+### The top-up bucket is thinner, and that is deliberate
+
+Subscription ACUs are sold at **5× face value** (£49 buys £9.80 of ACUs), so
+they carry the 4× markup *and* the plan premium. Top-up ACUs are sold at
+**face value** — £1 = 100 ACUs — so the whole margin is the markup: ~73% gross
+once Stripe has taken 1.5% + 20p. That is why there is a **£5 minimum**: at £1
+the fixed 20p is 21.5% of the payment and the net floor is breached. And why
+there is **no volume discount at any tier** — a 10% discount on a £500 top-up
+is 10% off the only protection the platform has.
+
+### Rollover is the one thing that concentrates the spend
+
+The 5% bound is on the allowance **issued**, not on a calendar month. Unused
+subscription ACUs roll over for 90 days, capped at **three months of included
+ACUs**, so a customer can save up and spend three allowances inside one month —
+fine, because they paid for all three, and the cap is what stops it being
+unbounded. Worst single month on Growth: £7.35 against £49, 85% gross.
+
+### Verification
+
+- `tests/subscription-margin.test.mjs` — **8 tests**, each derived from the two
+  rates rather than from a hardcoded 5%, so changing a rate changes the
+  expectation instead of breaking a magic number.
+- `npm run drive:reconcile` — now **17 proven / 0 broken**, printing the table
+  above from the live engine at three different cost levels.
+- **Six mutants killed**: raising the allowance to 50% of price; dropping the
+  markup floor from 4× to 2×; a volume discount on large top-ups; raising the
+  rollover cap to two years; removing the 4× term from `priced()` so only the
+  net-profit floor remained; and hand-pricing one line below its markup.
+  (A seventh — raising one provider cost — correctly SURVIVED, and that is the
+  point: a dearer invoice re-derives a dearer price, so the ratio holds.)
+
+### What the 95% is not
+
+It is the margin on **AI delivery**. Two costs sit outside it and are paid out
+of the subscription itself:
+
+- **Storage a plan includes and keeps.** The per-action floor charges for
+  persisting one artifact once; a 500GB allowance held for three years is a
+  subscription-level cost no ACU funds. Extra storage is **sold** (`ADDONS`),
+  not absorbed, and a test now requires every paid plan to declare what it
+  includes.
+- **Compute on routes that do not meter.** `check:exposure` already states it:
+  *"Residual risk is unmetered COMPUTE on those routes, not data, money or
+  mail."*
+
+Neither is a margin risk at current scale, and neither is hidden. Recorded here
+so the 95% is never quoted as the whole picture.
