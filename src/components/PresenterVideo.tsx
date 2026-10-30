@@ -9,7 +9,7 @@
 // not voice" sends you somewhere useful, "no consent" does not.
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, ShieldCheck, UserRound, Video, X } from "lucide-react";
+import { Film, Loader2, Scissors, ShieldCheck, UserRound, Video, X } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
 import { authedFetch } from "@/frontend/api-client";
@@ -27,6 +27,12 @@ type Job = {
   jobId?: string; status?: "rendering" | "ready" | "failed"; videoUrl?: string | null;
 };
 type AvatarChoice = { id: string; name: string; kind: "avatar" | "photo"; gender?: string; previewImage?: string };
+type PlannedBeat = { index: number; text: string; seconds: number; words?: number };
+type Plan = {
+  beats: PlannedBeat[]; totalSeconds: number; minutes: number;
+  dividedBy: "author" | "pace"; warnings: string[];
+  acus: number; continuous: boolean; provider: string | null; note: string;
+};
 type VoiceChoice = { id: string; name: string; language?: string; gender?: string };
 type Translation = { jobId: string; lang: string; status: string; videoUrl: string | null; note?: string };
 
@@ -58,6 +64,9 @@ export default function PresenterVideo() {
   const [voiceId, setVoiceId] = useState("");
   const [aspect, setAspect] = useState<"9:16" | "16:9" | "1:1">("9:16");
   const [voiceSource, setVoiceSource] = useState<"provider" | "cloned">("provider");
+  // One take, or a continuous commercial built from fifteen-second beats.
+  const [shape, setShape] = useState<"take" | "commercial">("take");
+  const [plan, setPlan] = useState<Plan | null>(null);
   const [elevenVoiceId, setElevenVoiceId] = useState("");
 
   // Translation
@@ -199,6 +208,43 @@ export default function PresenterVideo() {
     if (d) { setJob(d); setTranslations([]); }
   }
 
+  /**
+   * Split the script and quote the price, WITHOUT rendering or charging.
+   *
+   * The same function on the server answers this and sizes the real charge, so
+   * the beats shown here are the beats that get rendered. A preview computed
+   * one way and a render another is the defect this platform keeps producing.
+   */
+  async function planScenes() {
+    setPlan(null);
+    const d = await post({ action: "storyboard", script });
+    if (!d) return;
+    setPlan({
+      beats: Array.isArray(d.beats) ? d.beats : [],
+      totalSeconds: Number(d.totalSeconds) || 0,
+      minutes: Number(d.minutes) || 0,
+      dividedBy: d.dividedBy === "author" ? "author" : "pace",
+      warnings: Array.isArray(d.warnings) ? d.warnings.filter((w: unknown) => typeof w === "string") : [],
+      acus: Number(d.acus) || 0,
+      continuous: d.continuous === true,
+      provider: typeof d.provider === "string" ? d.provider : null,
+      note: typeof d.note === "string" ? d.note : "",
+    });
+  }
+
+  async function renderCommercial() {
+    const d = await post({
+      action: "commercial", script, avatarKind,
+      personName: personName || undefined,
+      avatarId: avatarId || undefined,
+      voiceId: voiceSource === "provider" ? (voiceId || undefined) : undefined,
+      voiceSource,
+      elevenVoiceId: voiceSource === "cloned" ? (elevenVoiceId || undefined) : undefined,
+      aspect,
+    });
+    if (d) { setJob(d); setTranslations([]); }
+  }
+
   async function translate() {
     if (!job?.jobId || !pickedLangs.length) return;
     const d = await post({ action: "translate", jobId: job.jobId, languages: pickedLangs });
@@ -270,8 +316,42 @@ export default function PresenterVideo() {
         </p>
       </div>
 
+      {/* ONE TAKE, OR A COMMERCIAL. The owner's brief: "a very professional and
+          commercial video of up to 1 minute no stop if 15 second each with a
+          tool to make them together as 1 video." There is no joining tool,
+          because the provider renders several scenes as ONE file — so the
+          choice here is how the script is divided, not how clips are glued. */}
+      <div className="mb-3 flex flex-wrap gap-2">
+        {([
+          ["take", "One take", "A single continuous read."],
+          ["commercial", "Commercial", "Up to 60s, built from 15-second scenes, rendered as one video."],
+        ] as const).map(([id, label, why]) => (
+          <button
+            key={id} type="button"
+            onClick={() => { setShape(id); setPlan(null); }}
+            className={`rounded-lg border px-3 py-2 text-left text-xs transition ${shape === id ? "border-brand-500/60 bg-brand-500/10 text-white" : "border-ink-700 text-slate-300 hover:border-slate-500"}`}
+          >
+            <span className="block font-bold">{label}</span>
+            <span className="block text-[10px] text-slate-500">{why}</span>
+          </button>
+        ))}
+      </div>
+
       <label className="label">The script</label>
-      <textarea className="input min-h-[100px]" value={script} onChange={(e) => setScript(e.target.value)} placeholder="The one point this video is making." />
+      <textarea
+        className="input min-h-[100px]" value={script}
+        onChange={(e) => { setScript(e.target.value); setPlan(null); }}
+        placeholder={shape === "commercial"
+          ? "Up to about 150 words. Leave a blank line where you want a new scene, or write it as prose and it will be divided for you."
+          : "The one point this video is making."}
+      />
+      {shape === "commercial" && (
+        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+          A blank line is a scene break. Write it as prose instead and it is divided at sentence boundaries into
+          beats of about fifteen seconds — never mid-word, and never inside &ldquo;Mr. Patel&rdquo; or &ldquo;£4.99&rdquo;.
+          Plan it first and you will see exactly what will be rendered before anything is charged.
+        </p>
+      )}
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
@@ -352,14 +432,59 @@ export default function PresenterVideo() {
         </div>
       )}
 
-      <button className="btn-primary mt-4" onClick={render} disabled={busy || !script.trim()}>
-        {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Working…</> : <><Video className="h-4 w-4" /> {configured ? "Render the presenter" : "Get the shot brief"}</>}
-      </button>
-      <p className="mt-2 text-[11px] text-slate-500">
-        {configured
-          ? `About ${minutes} minute${minutes === 1 ? "" : "s"} at a natural pace${acuPerMinute ? ` · ${acuPerMinute * minutes} ACUs` : ""}. Providers bill by duration, so this is charged by the minute and nothing is charged if a gate refuses it.`
-          : "No provider is configured, so this returns a shot brief and charges nothing."}
-      </p>
+      {shape === "take" ? (
+        <>
+          <button className="btn-primary mt-4" onClick={render} disabled={busy || !script.trim()}>
+            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Working…</> : <><Video className="h-4 w-4" /> {configured ? "Render the presenter" : "Get the shot brief"}</>}
+          </button>
+          <p className="mt-2 text-[11px] text-slate-500">
+            {configured
+              ? `About ${minutes} minute${minutes === 1 ? "" : "s"} at a natural pace${acuPerMinute ? ` · ${acuPerMinute * minutes} ACUs` : ""}. Providers bill by duration, so this is charged by the minute and nothing is charged if a gate refuses it.`
+              : "No provider is configured, so this returns a shot brief and charges nothing."}
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button className="btn-secondary" onClick={planScenes} disabled={busy || !script.trim()}>
+              {busy && !plan ? <><Loader2 className="h-4 w-4 animate-spin" /> Working…</> : <><Scissors className="h-4 w-4" /> Plan the scenes</>}
+            </button>
+            {plan && (
+              <button className="btn-primary" onClick={renderCommercial} disabled={busy}>
+                {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Working…</> : <><Film className="h-4 w-4" /> {plan.continuous ? `Render ${plan.beats.length} scenes as one video${plan.acus ? ` · ${plan.acus} ACUs` : ""}` : "Get the storyboard"}</>}
+              </button>
+            )}
+            <span className="text-[11px] text-slate-500">Planning is free — nothing is charged until you render.</span>
+          </div>
+
+          {plan && (
+            <div className="mt-3 rounded-lg border border-white/10 bg-ink-900/40 p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-white">
+                  {plan.beats.length} scene{plan.beats.length === 1 ? "" : "s"} · {plan.totalSeconds}s
+                </p>
+                <span className="text-[10px] text-slate-500">
+                  {plan.dividedBy === "author" ? "divided where you left the blank lines" : "divided at sentence boundaries, by pace"}
+                </span>
+              </div>
+              <ol className="space-y-1.5">
+                {plan.beats.map((b) => (
+                  <li key={b.index} className="flex gap-2 text-[11px] leading-relaxed">
+                    <span className="mt-px shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                      {b.index} · {b.seconds}s
+                    </span>
+                    <span className="text-slate-300">{b.text}</span>
+                  </li>
+                ))}
+              </ol>
+              {plan.warnings.map((w) => (
+                <p key={w} className="mt-2 text-[11px] leading-relaxed text-amber-200">{w}</p>
+              ))}
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{plan.note}</p>
+            </div>
+          )}
+        </>
+      )}
 
       {error && <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/[0.06] p-3 text-sm text-rose-200">{error}</p>}
 

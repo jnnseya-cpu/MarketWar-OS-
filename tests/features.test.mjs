@@ -11881,6 +11881,35 @@ test("adsumo-gap routes: brand-scoped, and free work is never metered", () => {
   // And a language the provider refuses is refunded, one language at a time.
   assert.match(avatarRoute, /creditAcus\(access\.uid, perLanguage\)/);
 
+  // THE COMMERCIAL PATH HAS ITS OWN SECTION AND THE SAME ORDER, because it is
+  // a second way into the same money. It sits ABOVE the render block, which is
+  // why the render guard above slices from `if (action !== "render")` — and why
+  // this one has to exist at all rather than relying on that slice.
+  const commercialSection = avatarRoute.slice(
+    avatarRoute.indexOf('if (action === "commercial" || action === "storyboard")'),
+    avatarRoute.indexOf('if (action !== "render")'),
+  );
+  assert.ok(commercialSection.length > 500, "the commercial action must be its own section");
+  const cGateAt = commercialSection.indexOf("await gateAvatar(asked)");
+  const cMeterAt = commercialSection.indexOf("await meterAction(access");
+  const cRenderAt = commercialSection.indexOf("await renderCommercial(");
+  assert.ok(cGateAt > 0 && cMeterAt > cGateAt, "a commercial must not touch the wallet before the refusals are checked");
+  assert.ok(cRenderAt > cMeterAt, "the provider must not be called before the wallet");
+  // THE FREE PREVIEW IS FREE. `storyboard` splits a script and quotes a price;
+  // charging for an estimate would make the one surface that stops a customer
+  // paying for an overrunning video the thing they avoid using.
+  const previewAt = commercialSection.indexOf('if (action === "storyboard")');
+  assert.ok(previewAt > 0 && previewAt < cMeterAt, "the storyboard preview must return before anything is metered");
+  // Billed as presenter MINUTES, from the plan's own duration — not a new price
+  // line, and not the generated-video rate.
+  assert.match(commercialSection, /meterAction\(access, "avatar", plan\.minutes\)/);
+  assert.ok(!/meterAction\(access, "video"/.test(commercialSection));
+  // A VOICE TRACK PER SCENE, metered per scene, and everything put back if any
+  // one of them fails — a commercial missing a scene is not a commercial.
+  assert.match(commercialSection, /for \(const beat of plan\.beats\)/);
+  assert.match(commercialSection, /meterAction\(access, "voice", units\)/);
+  assert.match(commercialSection, /await refund\(taken\)/);
+
   // The provider's key is never returned to the browser.
   assert.ok(!/envKey/.test(avatarRoute.split("export async function POST")[0].replace(/\/\/.*/g, "")), "a provider key must never leave the server");
 });

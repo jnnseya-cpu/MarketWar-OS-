@@ -37,6 +37,10 @@ import { saveWork } from "@/backend/work-library";
 import { creditAcus, ACTION_COST_ACU } from "@/backend/wallet";
 import { walletIdForBrand } from "@/backend/brand-access";
 import { createHash } from "crypto";
+import {
+  WORDS_PER_MINUTE as SPEAKING_WPM, BEAT_SECONDS, MAX_COMMERCIAL_SECONDS,
+  storyboard, storyboardFailed, type Beat,
+} from "@/shared/storyboard";
 
 export type AvatarProviderId = "heygen" | "did" | "synthesia" | "none";
 
@@ -67,22 +71,34 @@ export type AvatarProvider = {
   roster: boolean;
   /** Can it re-render the mouth for another language? */
   translation: boolean;
+  /**
+   * CAN ONE REQUEST CARRY SEVERAL SCENES AND COME BACK AS ONE VIDEO?
+   *
+   * This is what makes a continuous commercial possible without stitching
+   * anything. HeyGen's `video_inputs` and Synthesia's `input` are both ARRAYS
+   * of scenes rendered into a single file, with the same character and voice
+   * carried across them. D-ID's `/talks` is one script per talk, so a
+   * commercial on D-ID would mean four files and three visible joins — which
+   * is the "stop" the brief rules out, so it is declared false rather than
+   * faked by concatenation.
+   */
+  scenes: boolean;
 };
 
 export const AVATAR_PROVIDERS: AvatarProvider[] = [
   {
     id: "heygen", label: "HeyGen", envKey: "HEYGEN_API_KEY", customAvatars: true,
-    costPerMinuteGbp: 0.45, roster: true, translation: true,
+    costPerMinuteGbp: 0.45, roster: true, translation: true, scenes: true,
     forbids: ["impersonating a real person without consent", "political campaigning", "content implying a medical or financial recommendation"],
   },
   {
     id: "did", label: "D-ID", envKey: "DID_API_KEY", customAvatars: true,
-    costPerMinuteGbp: 0.18, roster: false, translation: false,
+    costPerMinuteGbp: 0.18, roster: false, translation: false, scenes: false,
     forbids: ["animating a photo of someone who has not consented", "deceptive or defamatory depiction"],
   },
   {
     id: "synthesia", label: "Synthesia", envKey: "SYNTHESIA_API_KEY", customAvatars: true,
-    costPerMinuteGbp: 0.60, roster: false, translation: false,
+    costPerMinuteGbp: 0.60, roster: false, translation: false, scenes: true,
     forbids: ["news-style content", "political content", "claims requiring regulatory approval"],
   },
 ];
@@ -105,10 +121,16 @@ export const AVATAR_PROVIDERS: AvatarProvider[] = [
  * mouth. Asking for the cheapest provider that cannot do the job is how a pool
  * silently downgrades a feature.
  */
-export function configuredProvider(need?: "roster" | "translation"): AvatarProvider | null {
+export type AvatarNeed = "roster" | "translation" | "scenes";
+
+export function configuredProvider(need?: AvatarNeed): AvatarProvider | null {
   const able = AVATAR_PROVIDERS
     .filter((p) => Boolean(process.env[p.envKey]))
-    .filter((p) => (need === "roster" ? p.roster : need === "translation" ? p.translation : true));
+    // ROUTING ON COST MUST NEVER SILENTLY REMOVE A CAPABILITY. The cheapest
+    // provider is chosen from those that can do the JOB asked for, not from all
+    // of them — a commercial sent to a provider that renders one scene per
+    // request would come back as one fifteen-second clip.
+    .filter((p) => (need === "roster" ? p.roster : need === "translation" ? p.translation : need === "scenes" ? p.scenes : true));
   if (!able.length) return null;
   return able.reduce((cheapest, p) => (p.costPerMinuteGbp < cheapest.costPerMinuteGbp ? p : cheapest));
 }
@@ -287,11 +309,16 @@ export function wouldCallProvider(): boolean { return configuredProvider() !== n
  * anybody noticing. 150 words per minute is a natural presenter pace — the same
  * rate the brief uses to state its own length, so the number the customer is
  * quoted and the number they are charged come from one place.
+ *
+ * THAT ONE PLACE IS NOW `shared/storyboard.ts`, re-exported here. The
+ * storyboard splits a commercial into fifteen-second beats and the SCREEN shows
+ * the customer those seconds before anything is charged — so a second copy of
+ * the pace in the frontend would be free to drift from the one that bills.
  */
-export const WORDS_PER_MINUTE = 150;
+export { WORDS_PER_MINUTE } from "@/shared/storyboard";
 export function billableMinutes(script: string): number {
   const words = (script || "").split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.ceil(words / WORDS_PER_MINUTE));
+  return Math.max(1, Math.ceil(words / SPEAKING_WPM));
 }
 
 export async function renderAvatar(req: AvatarRequest): Promise<AvatarJob> {
@@ -326,7 +353,7 @@ export async function renderAvatar(req: AvatarRequest): Promise<AvatarJob> {
 
   // 4. Live. The adapter is deliberately thin — one door, and the provider's own
   //    id scheme stays the provider's business.
-  const started = await startWith(provider, req, script);
+  const started = await startWith(provider, req, [{ text: script, ...(req.audioUrl ? { audioUrl: req.audioUrl } : {}) }]);
   if (!started.ok) return { ok: false, error: started.error };
 
   // THE RENDER IS WRITTEN DOWN BEFORE THE CALLER IS TOLD ABOUT IT.
@@ -366,6 +393,181 @@ export async function renderAvatar(req: AvatarRequest): Promise<AvatarJob> {
     videoUrl: null,
     disclosure: SYNTHETIC_DISCLOSURE,
     note: `Rendering with ${provider.label}. ${req.avatarKind === "custom" ? "Consent on record and in date." : "Stock performer — you may not imply they personally endorse the product."} ${SYNTHETIC_DISCLOSURE}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A CONTINUOUS COMMERCIAL, UP TO A MINUTE, OUT OF FIFTEEN-SECOND BEATS
+// ---------------------------------------------------------------------------
+//
+// THE OWNER'S BRIEF: *"a very professional and commercial video of up to 1
+// minute no stop if 15 second each with a tool to make them together as 1
+// video."*
+//
+// There is no stitching here, and the reason is in `shared/storyboard.ts`: the
+// provider's scene array already renders several beats as ONE continuous file,
+// so the "tool to make them together" is one request rather than a joiner.
+// That removes ffmpeg, three extra jobs, three extra failure modes, three
+// refunds — and, most of all, the visible joins where separate renders drift
+// apart in head position, lighting and audio level.
+//
+// Everything after the render is the single-take path untouched: one
+// `avatar_renders` job, polled by `getAvatarRender`, hosted on our own storage,
+// filed in the work library, refunded if it fails. The commercial is a
+// DIFFERENT SCRIPT SPLIT, not a different pipeline.
+
+export type CommercialRequest = AvatarRequest & {
+  /**
+   * One hosted track per beat, in order, when a cloned voice is used.
+   *
+   * A single-take render takes one `audioUrl`; a four-beat commercial needs
+   * four tracks, because each scene lip-syncs to its own. An entry may be null
+   * for a beat that should use the provider's own voice — mixing the two in one
+   * video would be audible, so the route sends all or none.
+   */
+  beatAudioUrls?: (string | null)[];
+  /** Override the beat length. Defaults to the brief's fifteen seconds. */
+  beatSeconds?: number;
+};
+
+export type CommercialJob =
+  | (Extract<AvatarJob, { ok: true }> & {
+      beats: { index: number; text: string; seconds: number }[];
+      totalSeconds: number;
+      minutes: number;
+      dividedBy: "author" | "pace";
+      warnings: string[];
+    })
+  | { ok: false; error: string; hint?: string };
+
+/**
+ * Plan the commercial WITHOUT rendering or charging anything.
+ *
+ * Exported because the screen has to show the split before the money moves,
+ * and the route has to know the duration before it meters. One function
+ * answering both means the beats the customer approved are the beats that get
+ * rendered — rather than a preview computed one way and a render another, which
+ * is the defect this codebase keeps producing.
+ */
+export function planCommercial(req: { script: string; beatSeconds?: number }): {
+  ok: true; beats: Beat[]; totalSeconds: number; minutes: number; dividedBy: "author" | "pace"; warnings: string[];
+} | { ok: false; error: string; hint?: string } {
+  const plan = storyboard(req.script, { beatSeconds: req.beatSeconds || BEAT_SECONDS, maxSeconds: MAX_COMMERCIAL_SECONDS });
+  if (storyboardFailed(plan)) return { ok: false, error: plan.error, ...(plan.hint ? { hint: plan.hint } : {}) };
+  return {
+    ok: true,
+    beats: plan.beats,
+    totalSeconds: plan.totalSeconds,
+    // CHARGED BY DURATION, like every other render, from the same arithmetic.
+    // A commercial is not a new price line — it is presenter minutes, and a
+    // sixty-second one is a single minute of them.
+    minutes: Math.max(1, Math.ceil(plan.totalSeconds / 60)),
+    dividedBy: plan.dividedBy,
+    warnings: plan.warnings,
+  };
+}
+
+export async function renderCommercial(req: CommercialRequest): Promise<CommercialJob> {
+  // The same gates as a single take, in the same order, from the same function.
+  // A second entry point that skipped them would be the whole point of the
+  // module lost to a convenience.
+  const gate = await gateAvatar(req);
+  if (!gate.ok) return gate;
+
+  const plan = planCommercial(req);
+  if (!plan.ok) return plan;
+
+  const beats = plan.beats;
+  const provider = configuredProvider("scenes");
+
+  // No provider that can render scenes — hand over the STORYBOARD rather than a
+  // fake video. It is a real deliverable: a shot list somebody can film.
+  if (!provider) {
+    const anyProvider = configuredProvider();
+    return {
+      ok: true,
+      mode: "brief",
+      provider: "none",
+      jobRef: null,
+      disclosure: SYNTHETIC_DISCLOSURE,
+      beats: beats.map((b) => ({ index: b.index, text: b.text, seconds: b.seconds })),
+      totalSeconds: plan.totalSeconds,
+      minutes: plan.minutes,
+      dividedBy: plan.dividedBy,
+      warnings: plan.warnings,
+      brief: [
+        `COMMERCIAL STORYBOARD — ${beats.length} scenes, ${plan.totalSeconds}s total`,
+        "",
+        ...beats.flatMap((b) => [`SCENE ${b.index} (${b.seconds}s)`, b.text, ""]),
+        "Continuity: the same presenter, voice and framing in every scene — a change of any of",
+        "the three reads as a different video spliced in.",
+        "Captions: burned in — most of this will be watched on mute.",
+        `Disclosure: ${SYNTHETIC_DISCLOSURE}`,
+      ].join("\n"),
+      note: anyProvider
+        ? `${anyProvider.label} is configured but renders one scene per request, so it cannot make this continuous. Nothing was rendered and nothing was charged. Set HEYGEN_API_KEY or SYNTHESIA_API_KEY to render it as one video — or film the storyboard above, which is real and usable.`
+        : "No avatar provider is configured, so nothing was rendered and nothing was charged. The storyboard above is real and usable — film it, or set HEYGEN_API_KEY or SYNTHESIA_API_KEY to render it.",
+    };
+  }
+
+  // ONE REQUEST, EVERY SCENE. A cloned voice supplies a track per beat; a
+  // provider voice reads each beat's text. Mixing the two inside one video
+  // would be audible, so a partial set of tracks is refused rather than
+  // half-used.
+  const tracks = req.beatAudioUrls || [];
+  const usable = tracks.filter((t): t is string => typeof t === "string" && t.length > 0);
+  if (usable.length && usable.length !== beats.length) {
+    return {
+      ok: false,
+      error: `There are ${usable.length} voice tracks for ${beats.length} scenes.`,
+      hint: "Every scene needs its own track, or none of them do — a commercial that switches between a cloned voice and a stock one halfway through is audibly two videos.",
+    };
+  }
+  const scenes: Scene[] = beats.map((b, i) => ({
+    text: b.text,
+    ...(usable.length ? { audioUrl: usable[i] } : {}),
+  }));
+
+  const started = await startWith(provider, req, scenes);
+  if (!started.ok) return { ok: false, error: started.error };
+
+  const jobId = `av_${hid(`${req.brandId}|${started.ref}|${req.nowISO}`)}`;
+  const job: AvatarRender = {
+    jobId,
+    brandId: req.brandId,
+    provider: provider.id,
+    providerRef: started.ref,
+    status: "rendering",
+    videoUrl: null,
+    script: beats.map((b) => b.text).join("\n\n"),
+    avatarKind: req.avatarKind,
+    ...(req.personName ? { personName: req.personName } : {}),
+    aspect: req.aspect || "9:16",
+    minutes: plan.minutes,
+    chargedAcu: req.chargedAcu ?? 0,
+    startedAt: req.nowISO,
+    disclosure: SYNTHETIC_DISCLOSURE,
+    beats: beats.map((b) => ({ index: b.index, text: b.text, seconds: b.seconds })),
+    totalSeconds: plan.totalSeconds,
+    note: `Rendering a ${plan.totalSeconds}s commercial in ${beats.length} scenes with ${provider.label}.`,
+  };
+  await saveRender(job);
+
+  return {
+    ok: true,
+    mode: "live",
+    provider: provider.id,
+    jobRef: started.ref,
+    jobId,
+    status: "rendering",
+    videoUrl: null,
+    disclosure: SYNTHETIC_DISCLOSURE,
+    beats: job.beats || [],
+    totalSeconds: plan.totalSeconds,
+    minutes: plan.minutes,
+    dividedBy: plan.dividedBy,
+    warnings: plan.warnings,
+    note: `Rendering one continuous ${plan.totalSeconds}s video from ${beats.length} scenes with ${provider.label} — no joins, because the provider renders them as a single piece. ${req.avatarKind === "custom" ? "Consent on record and in date." : "Stock performer — you may not imply they personally endorse the product."} ${SYNTHETIC_DISCLOSURE}`,
   };
 }
 
@@ -415,6 +617,16 @@ export type AvatarRender = {
   startedAt: string;
   note: string;
   disclosure: string;
+  /**
+   * THE SCENES THIS VIDEO WAS BUILT FROM, when it is a commercial.
+   *
+   * Kept with the render rather than recomputed from the script, for the same
+   * reason `chargedAcu` is: a storyboard re-derived months later would use
+   * whatever the splitting rules are by then, and the answer to "what did we
+   * actually render" would quietly change. Absent on a single-take video.
+   */
+  beats?: { index: number; text: string; seconds: number }[];
+  totalSeconds?: number;
 };
 
 const memRenders = new Map<string, AvatarRender>();
@@ -681,15 +893,37 @@ function dimensionFor(aspect?: AvatarAspect): { width: number; height: number } 
   return { width: d.width, height: d.height };
 }
 
-async function startWith(p: AvatarProvider, req: AvatarRequest, script: string): Promise<{ ok: true; ref: string } | { ok: false; error: string }> {
+/**
+ * One piece of a render: what is said, and optionally the track to say it with.
+ *
+ * A single-take video is one of these; a commercial is several. Keeping them
+ * the same shape is the reason there is ONE adapter rather than two — a second
+ * `startCommercialWith` would be a second place for a provider's id scheme, a
+ * second set of headers and a second thing to forget when a provider changes.
+ */
+export type Scene = { text: string; audioUrl?: string };
+
+async function startWith(p: AvatarProvider, req: AvatarRequest, scenes: Scene[]): Promise<{ ok: true; ref: string } | { ok: false; error: string }> {
   const key = process.env[p.envKey] as string;
+  const parts = scenes.length ? scenes : [{ text: (req.script || "").trim() }];
+  if (parts.length > 1 && !p.scenes) {
+    // Unreachable through the routes, which ask `configuredProvider("scenes")`.
+    // Checked anyway, because the alternative to this line is a commercial
+    // silently rendered as its first fifteen seconds.
+    return { ok: false, error: `${p.label} renders one scene per request, so it cannot make a continuous commercial. Configure HeyGen or Synthesia for that.` };
+  }
   try {
     if (p.id === "heygen") {
       const res = await fetch("https://api.heygen.com/v2/video/generate", {
         method: "POST",
         headers: { "X-Api-Key": key, "Content-Type": "application/json" },
         body: JSON.stringify({
-          video_inputs: [{
+          // ONE REQUEST, N SCENES, ONE VIDEO BACK. This array has always been
+          // an array; we had always sent exactly one entry. Several entries is
+          // what makes a sixty-second commercial out of fifteen-second beats
+          // with no joins to hide — the provider renders them as one piece,
+          // with the same character and voice throughout.
+          video_inputs: parts.map((scene) => ({
             character: { type: "avatar", avatar_id: req.avatarId || "" },
             // A HOSTED AUDIO TRACK BEATS THE PROVIDER'S OWN TEXT-TO-SPEECH when
             // one is supplied, and that is how a CLONED voice gets onto the
@@ -697,10 +931,10 @@ async function startWith(p: AvatarProvider, req: AvatarRequest, script: string):
             // we host it, and the presenter lip-syncs to it. The provider never
             // receives the voice model — only a finished track — so a cloned
             // voice is not uploaded to a second vendor to make this work.
-            voice: req.audioUrl
-              ? { type: "audio", audio_url: req.audioUrl }
-              : { type: "text", input_text: script, voice_id: req.voiceId || undefined },
-          }],
+            voice: scene.audioUrl
+              ? { type: "audio", audio_url: scene.audioUrl }
+              : { type: "text", input_text: scene.text, voice_id: req.voiceId || undefined },
+          })),
           dimension: dimensionFor(req.aspect),
         }),
       });
@@ -714,9 +948,9 @@ async function startWith(p: AvatarProvider, req: AvatarRequest, script: string):
         method: "POST",
         headers: { Authorization: `Basic ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          script: req.audioUrl
-            ? { type: "audio", audio_url: req.audioUrl }
-            : { type: "text", input: script },
+          script: parts[0].audioUrl
+            ? { type: "audio", audio_url: parts[0].audioUrl }
+            : { type: "text", input: parts[0].text },
           presenter_id: req.avatarId || undefined,
         }),
       });
@@ -727,7 +961,12 @@ async function startWith(p: AvatarProvider, req: AvatarRequest, script: string):
     const res = await fetch("https://api.synthesia.io/v2/videos", {
       method: "POST",
       headers: { Authorization: key, "Content-Type": "application/json" },
-      body: JSON.stringify({ test: false, input: [{ scriptText: script, avatar: req.avatarId || undefined }] }),
+      // Synthesia's `input` is an array of scenes too, so a commercial is one
+      // video here as well — the same reason D-ID is declared `scenes: false`.
+      body: JSON.stringify({
+        test: false,
+        input: parts.map((scene) => ({ scriptText: scene.text, avatar: req.avatarId || undefined })),
+      }),
     });
     if (!res.ok) return { ok: false, error: `Synthesia ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}` };
     const d = (await res.json().catch(() => null)) as { id?: string } | null;
