@@ -82,10 +82,41 @@ export const HANDLED_EVENTS = [
   // MONEY GOING BACK OUT. Without these, ACUs were a one-way door: buy them,
   // spend them, then refund or dispute the charge and keep the work. Prepaid
   // credit with no reversal is the oldest fraud in the model.
-  "charge.refunded",
-  "charge.dispute.created",
+  //
+  // WHY `refund.created` AND NOT `charge.refunded`, which this used to name.
+  // The object on `charge.refunded` is the CHARGE, and its `amount_refunded` is
+  // CUMULATIVE. Two partial refunds of £10 on a £30 charge arrive as two events
+  // carrying 1000 and 2000, so reversing each one took £30 of ACUs back for £20
+  // of money returned. `refund.created` carries the Refund itself — this
+  // refund's own amount and its own id — which is the delta and is what
+  // Stripe's own documentation points at from the `charge.refunded` entry.
+  "refund.created",
+  // ONE DISPUTE, ONE REVERSAL. `charge.dispute.created` and
+  // `charge.dispute.funds_withdrawn` are two events, with two event ids, about
+  // the same dispute and the same amount — and idempotency keyed on the event
+  // id cannot see that, so subscribing to both took the ACUs back TWICE. The
+  // reversal belongs on the one that means the money has actually left.
   "charge.dispute.funds_withdrawn",
+  // AND IF WE WIN IT, THE CUSTOMER GETS THEM BACK. Without this the reversal
+  // was permanent whatever the outcome: a customer who disputed a charge, lost
+  // the dispute, and had the money taken back off them by their own bank was
+  // still short the ACUs we clawed back.
+  "charge.dispute.funds_reinstated",
 ] as const;
+
+/**
+ * THE EVENTS TO TICK IN THE STRIPE DASHBOARD — the complete list, and the only
+ * list.
+ *
+ * `HANDLED_EVENTS` is what the DISPATCHER acts on. This is one longer, because
+ * `charge.succeeded` is read by `brandRevenueFromEvent` for a customer's own
+ * sales through our checkout and never reaches the dispatcher at all. An owner
+ * ticking boxes needs one list; two lists is how a box goes unticked.
+ *
+ * Everything not on this list is acknowledged with 200 and ignored, so
+ * subscribing to more than this costs delivery volume and buys nothing.
+ */
+export const SUBSCRIBE_EVENTS = [...HANDLED_EVENTS, "charge.succeeded"] as const;
 
 // ---------------------------------------------------------------------------
 // Signature verification — Stripe scheme: header "t=<ts>,v1=<hex>", signed
@@ -119,11 +150,42 @@ export type StripeEventLike = {
   data?: { object?: Record<string, unknown> };
 };
 
+/**
+ * The identity of the money that moved, for idempotency.
+ *
+ * A Firestore document id, so it has to be safe to use as one: the provider's
+ * ids are already `re_…` / `du_…`, but a hostile or malformed payload must not
+ * be able to write outside its own document, which a `/` in an id would do.
+ * Falls back to the charge when the object carries no id of its own, and to
+ * nothing at all when neither is readable — and the caller then uses the event
+ * id, which is the behaviour this replaced and is still correct for a
+ * redelivery.
+ */
+function movementKey(kind: "refund" | "dispute", obj: Record<string, unknown> | undefined): string {
+  const raw = obj && typeof obj === "object" ? obj : {};
+  const id = typeof raw.id === "string" && raw.id.trim()
+    ? raw.id.trim()
+    : typeof raw.charge === "string" && raw.charge.trim() ? `charge_${raw.charge.trim()}` : "";
+  const safe = id.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 120);
+  return safe ? `${kind}_${safe}` : "";
+}
+
 export type WebhookOutcome = {
   eventId: string;
   eventType: string;
   handled: boolean;
-  action: "allocate_acus" | "grace_period" | "downgrade" | "renew" | "reverse_credit" | "ignored";
+  action: "allocate_acus" | "grace_period" | "downgrade" | "renew" | "reverse_credit" | "restore_credit" | "ignored";
+  /**
+   * THE KEY THAT DECIDES WHETHER THIS HAS ALREADY BEEN APPLIED, when the event
+   * id is the wrong question.
+   *
+   * Two different events can describe one movement of money — a dispute opening
+   * and its funds being withdrawn — and idempotency on the event id cannot see
+   * that they are the same £30. Where a movement has an identity of its own
+   * (the refund, the dispute), this carries it and the wallet dedupes on it
+   * instead. Absent for everything else, where the event id is exactly right.
+   */
+  dedupeKey?: string;
   /** monthly | annual, when the event names one. */
   cycle?: "monthly" | "annual";
   /** The instalments still owed on an annual allocation. */
@@ -306,17 +368,76 @@ export function handleStripeEvent(event: StripeEventLike): WebhookOutcome {
   // is 1 penny. It cannot make a balance negative — what cannot be taken is
   // recorded as owed and netted off the next payment, the same way a creator
   // clawback on an unrecallable rail is handled.
-  if (event.type === "charge.refunded" || event.type === "charge.dispute.created" || event.type === "charge.dispute.funds_withdrawn") {
-    const back = Math.max(0, Math.round(Number(
-      obj?.amount_refunded ?? (obj as { amount?: unknown } | undefined)?.amount ?? 0,
-    )));
+  // ONE MOVEMENT OF MONEY, ONE REVERSAL — AND THE KEY THAT GUARANTEES IT.
+  //
+  // Idempotency used to be the event id alone, which is correct for a
+  // REDELIVERY of the same event and blind to two DIFFERENT events describing
+  // the same movement. `dedupeKey` is derived from the refund or the dispute,
+  // so the second event about one dispute is an idempotent skip even if both
+  // are subscribed — the fix does not depend on which boxes are ticked in a
+  // dashboard, which is exactly the property it needs, because that selection
+  // is not ours to control.
+  if (event.type === "refund.created") {
+    // The Refund object: this refund's OWN amount, which is the delta.
+    const back = Math.max(0, Math.round(Number((obj as { amount?: unknown } | undefined)?.amount ?? 0)));
     if (back <= 0) {
-      return { ...base, handled: false, action: "ignored", note: "Refund or dispute carried no amount, so nothing was reversed rather than guessing one." };
+      return { ...base, handled: false, action: "ignored", note: "The refund carried no amount, so nothing was reversed rather than guessing one." };
     }
+    const key = movementKey("refund", obj);
     return {
       ...base, handled: true, action: "reverse_credit", acusAllocated: -back,
-      ledgerEntry: { type: "acu_reversal", direction: "debit", amountAcu: back, idempotencyKey: event.id },
-      note: `${event.type === "charge.refunded" ? "Refunded" : "Disputed"} — reverse ${back} ACUs. A balance is never driven negative; anything already spent is recorded as owed and netted off the next payment.`,
+      dedupeKey: key,
+      ledgerEntry: { type: "acu_reversal", direction: "debit", amountAcu: back, idempotencyKey: key },
+      note: `Refunded — reverse ${back} ACUs. This refund's own amount, not the charge's running total, so two partial refunds take back exactly what went home. A balance is never driven negative; anything already spent is recorded as owed and netted off the next payment.`,
+    };
+  }
+
+  if (event.type === "charge.dispute.funds_withdrawn") {
+    const back = Math.max(0, Math.round(Number((obj as { amount?: unknown } | undefined)?.amount ?? 0)));
+    if (back <= 0) {
+      return { ...base, handled: false, action: "ignored", note: "The dispute carried no amount, so nothing was reversed rather than guessing one." };
+    }
+    const key = movementKey("dispute", obj);
+    return {
+      ...base, handled: true, action: "reverse_credit", acusAllocated: -back,
+      dedupeKey: key,
+      ledgerEntry: { type: "acu_reversal", direction: "debit", amountAcu: back, idempotencyKey: key },
+      note: `Disputed and the funds have left our account — reverse ${back} ACUs. Keyed on the dispute, so the earlier charge.dispute.created cannot reverse the same money a second time.`,
+    };
+  }
+
+  if (event.type === "charge.dispute.funds_reinstated") {
+    const backIn = Math.max(0, Math.round(Number((obj as { amount?: unknown } | undefined)?.amount ?? 0)));
+    if (backIn <= 0) {
+      return { ...base, handled: false, action: "ignored", note: "The reinstatement carried no amount, so nothing was restored rather than guessing one." };
+    }
+    const key = `${movementKey("dispute", obj)}_reinstated`;
+    return {
+      // NOT a sale, and deliberately not `allocate_acus`: no plan is activated
+      // and no conversion is reported. A won dispute reported as a Purchase
+      // would teach the ad platform to bid for customers who charge back.
+      ...base, handled: true, action: "restore_credit", acusAllocated: backIn,
+      dedupeKey: key,
+      ledgerEntry: { type: "acu_reinstatement", direction: "credit", amountAcu: backIn, idempotencyKey: key },
+      note: `The dispute was resolved in our favour and the funds came back — restore ${backIn} ACUs. Anything that was recorded as owed because the balance could not cover the reversal is settled by this first.`,
+    };
+  }
+
+  // THE TWO EVENTS THAT LOOK LIKE THEY SHOULD REVERSE, AND MUST NOT.
+  //
+  // Both are acknowledged and explained rather than left to the generic
+  // fall-through, because "why did my refund not take the ACUs back" is a
+  // question somebody will ask of the log, and the log should answer it.
+  if (event.type === "charge.refunded") {
+    return {
+      ...base, handled: false, action: "ignored",
+      note: "Acknowledged, not actioned: the amount_refunded on a charge is CUMULATIVE, so reversing it would take back the whole running total every time a partial refund is issued. The reversal is on refund.created, which carries this refund's own amount.",
+    };
+  }
+  if (event.type === "charge.dispute.created") {
+    return {
+      ...base, handled: false, action: "ignored",
+      note: "Acknowledged, not actioned: a dispute being opened is a notification, not a movement of money. The reversal is on charge.dispute.funds_withdrawn, when the funds have actually left — reversing on both would take the same money back twice.",
     };
   }
 

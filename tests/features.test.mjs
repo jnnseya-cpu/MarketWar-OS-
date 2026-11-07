@@ -22054,15 +22054,44 @@ test("a refund or a chargeback takes the ACUs back", async () => {
   // Buy ACUs, spend them, then refund or dispute: the work was done, the
   // provider was paid, and the money went home. Prepaid credit with no reversal
   // is the oldest fraud in this model and nothing handled it.
-  for (const type of ["charge.refunded", "charge.dispute.created", "charge.dispute.funds_withdrawn"]) {
+  // THIS TEST USED TO ASSERT THE DEFECT AS A FEATURE. It required
+  // charge.refunded, charge.dispute.created AND charge.dispute.funds_withdrawn
+  // to each reverse the credit — which is how a single dispute took the ACUs
+  // back TWICE (two events, two event ids, one £25) and how two partial refunds
+  // took back more than was refunded (amount_refunded on a charge is
+  // CUMULATIVE). It was written to prove reversal existed at all, which was the
+  // gap at the time, and nobody asked what happens when both arrive.
+  for (const type of ["refund.created", "charge.dispute.funds_withdrawn"]) {
     assert.ok(HANDLED_EVENTS.includes(type), `${type} is not even acted on`);
-    const out = handleStripeEvent({ id: `evt_${type}`, type, data: { object: { amount_refunded: 2500, amount: 2500 } } });
+    const out = handleStripeEvent({ id: `evt_${type}`, type, data: { object: { id: "mv_1", amount: 2500 } } });
     assert.equal(out.action, "reverse_credit", `${type} does not reverse the credit`);
     assert.equal(out.ledgerEntry?.direction, "debit", `${type} writes a credit rather than a debit`);
     assert.equal(out.ledgerEntry?.amountAcu, 2500);
+    // Keyed on the MOVEMENT, not the delivery, so a second event about the same
+    // money cannot apply a second time.
+    assert.ok(out.dedupeKey && out.dedupeKey !== `evt_${type}`, `${type} is still deduped on the event id alone`);
   }
+
+  // And the two that look like they should reverse are acknowledged, not
+  // actioned, with the reason in the note rather than left to a generic one.
+  for (const [type, why] of [["charge.refunded", /cumulative/i], ["charge.dispute.created", /notification/i]]) {
+    const out = handleStripeEvent({ id: "e", type, data: { object: { id: "d_1", amount: 2500, amount_refunded: 2500 } } });
+    assert.equal(out.action, "ignored", `${type} must not reverse — see its note`);
+    assert.match(out.note, why, out.note);
+    assert.ok(!HANDLED_EVENTS.includes(type), `${type} is advertised but no longer actioned`);
+  }
+
+  // A WON DISPUTE GIVES THEM BACK. Without this the reversal was permanent
+  // whatever the outcome.
+  const won = handleStripeEvent({ id: "evt_won", type: "charge.dispute.funds_reinstated", data: { object: { id: "du_1", amount: 2500 } } });
+  assert.equal(won.action, "restore_credit");
+  assert.equal(won.ledgerEntry?.direction, "credit");
+  assert.equal(won.ledgerEntry?.amountAcu, 2500);
+  assert.ok(!won.payment, "a won dispute is not a sale and must never be reported as one");
+
   // An amount we cannot read is not guessed at.
-  assert.equal(handleStripeEvent({ id: "e", type: "charge.refunded", data: { object: {} } }).action, "ignored");
+  assert.equal(handleStripeEvent({ id: "e", type: "refund.created", data: { object: {} } }).action, "ignored");
+  assert.equal(handleStripeEvent({ id: "e", type: "charge.dispute.funds_reinstated", data: { object: {} } }).action, "ignored");
 });
 
 test("a reversal never drives a wallet negative, and what it cannot take is remembered", async () => {
@@ -28115,7 +28144,7 @@ test("the advertised Stripe events match the ones the dispatcher acts on", async
   // in the Stripe dashboard. It does not gate dispatch, so a mismatch does not
   // throw — it quietly tells somebody to subscribe to fewer events than the
   // code needs, and the money for those events never arrives.
-  const { HANDLED_EVENTS } = await import("../src/backend/stripe-billing.ts");
+  const { HANDLED_EVENTS, SUBSCRIBE_EVENTS, handleStripeEvent } = await import("../src/backend/stripe-billing.ts");
   const src = codeOf(readFileSync(new URL("../src/backend/stripe-billing.ts", import.meta.url), "utf8"));
 
   // Every event type the dispatcher compares against, taken from the source.
@@ -28125,13 +28154,38 @@ test("the advertised Stripe events match the ones the dispatcher acts on", async
   assert.ok(branched.size >= 8, "the branch scan found nothing — the shape of the dispatcher changed");
 
   const advertised = new Set(HANDLED_EVENTS);
-  const missing = [...branched].filter((e) => !advertised.has(e)).sort();
-  assert.deepEqual(missing, [], `acted on but never advertised, so nobody subscribes to them: ${missing.join(", ")}`);
 
-  // And the other direction: advertising an event nothing handles makes an
-  // owner tick a box for nothing and reads as coverage the code does not have.
+  // DRIVEN, NOT READ. A branch exists for `charge.refunded` so the log can
+  // explain why it is NOT actioned, and a textual scan cannot tell that from a
+  // branch that reverses money. So every branched type is put through the real
+  // dispatcher with an object rich enough for its handled path, and the answer
+  // decides which list it belongs on.
+  const object = {
+    id: "obj_1", amount: 2500, amount_refunded: 2500, amount_total: 4900, amount_paid: 4900,
+    mode: "subscription",
+    metadata: { planId: "growth", marketwar_topup: "true", marketwar_acus: "500" },
+  };
+  for (const type of branched) {
+    const out = handleStripeEvent({ id: `evt_${type}`, type, data: { object } });
+    if (out.handled) {
+      assert.ok(advertised.has(type), `${type} moves money or changes a plan and is not advertised, so nobody subscribes to it`);
+    } else {
+      assert.ok(!advertised.has(type), `${type} is advertised but the dispatcher ignores it — an owner would tick a box for nothing`);
+    }
+  }
+
+  // And every advertised event must be one the dispatcher really acts on.
   const unused = [...advertised].filter((e) => !branched.has(e)).sort();
   assert.deepEqual(unused, [], `advertised but never acted on: ${unused.join(", ")}`);
+
+  // THE LIST AN OWNER TICKS IS LONGER THAN THE DISPATCHER'S, BY EXACTLY ONE.
+  // `charge.succeeded` is read for a customer's own sales through our checkout
+  // and never reaches the dispatcher — and two lists is how a box goes
+  // unticked, so the wider one is published as its own name.
+  const subscribe = new Set(SUBSCRIBE_EVENTS);
+  for (const e of advertised) assert.ok(subscribe.has(e), `${e} is handled but not on the subscribe list`);
+  const extra = [...subscribe].filter((e) => !advertised.has(e));
+  assert.deepEqual(extra, ["charge.succeeded"], `the subscribe list carries ${extra.join(", ")} beyond what the dispatcher handles`);
 });
 
 test("a variable read only by a health endpoint must not claim to unlock a feature", () => {
