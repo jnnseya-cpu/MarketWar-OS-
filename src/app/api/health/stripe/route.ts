@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createHmac } from "node:crypto";
-import { verifyStripeSignature, MAIN_DOMAIN, STRIPE_WEBHOOK_PATH, HANDLED_EVENTS } from "@/backend/stripe-billing";
+import { verifyStripeSignature, MAIN_DOMAIN, STRIPE_WEBHOOK_PATH, HANDLED_EVENTS, SUBSCRIBE_EVENTS } from "@/backend/stripe-billing";
 import { classifyEndpoints, probeTargets } from "@/shared/stripe-endpoints";
 import { stripeKeyMode } from "@/shared/stripe-drive";
 
@@ -156,7 +156,7 @@ export async function GET(req: NextRequest) {
         // The classification is pure and lives in `shared/stripe-endpoints.ts`,
         // because inline here it could only be exercised with a live Stripe key
         // — and a branch that can only run in production is an untested branch.
-        endpoints = { ran: true, ok: true, ...classifyEndpoints({ rows, servingHost, webhookPath: STRIPE_WEBHOOK_PATH, handledEvents: HANDLED_EVENTS }) };
+        endpoints = { ran: true, ok: true, ...classifyEndpoints({ rows, servingHost, webhookPath: STRIPE_WEBHOOK_PATH, handledEvents: SUBSCRIBE_EVENTS }) };
       }
     } catch (e) {
       endpoints = { ran: true, ok: false, error: (e as Error).message, note: "Could not reach Stripe to list endpoints." };

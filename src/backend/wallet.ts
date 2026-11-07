@@ -620,6 +620,23 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
   const id = (orgId || "").trim();
   const eventId = outcome.eventId;
 
+  /**
+   * WHAT "ALREADY DONE" IS KEYED ON.
+   *
+   * The event id answers "is this a redelivery of the same event", and that is
+   * all it answers. It cannot see TWO DIFFERENT EVENTS DESCRIBING ONE MOVEMENT
+   * OF MONEY — a dispute opening and the same dispute's funds being withdrawn
+   * carry the same amount, the same charge and two different ids, so an
+   * endpoint subscribed to both took the ACUs back twice and the idempotency
+   * record showed two legitimate applications.
+   *
+   * So where the dispatcher can name the movement (`dedupeKey`: the refund, the
+   * dispute), that is what the record is keyed on. The event's own id is still
+   * written into the record, because the question "which delivery did this" has
+   * to stay answerable.
+   */
+  const ledgerKey = (outcome.dedupeKey || "").trim() || eventId;
+
   // Only credit-bearing / plan-activating outcomes touch the wallet.
   const credit = outcome.ledgerEntry?.direction === "credit" ? Math.max(0, Math.round(outcome.ledgerEntry.amountAcu)) : 0;
   const activatesPlan = outcome.action === "allocate_acus" || outcome.action === "renew";
@@ -665,10 +682,17 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
 
   if (adminConfigured && adminDb) {
     const walletRef = adminDb.collection(COLLECTION).doc(id);
-    const eventRef = adminDb.collection(EVENTS).doc(eventId);
+    const eventRef = adminDb.collection(EVENTS).doc(ledgerKey);
     return await adminDb.runTransaction(async (tx) => {
       const evSnap = await tx.get(eventRef);
-      if (evSnap.exists) return { applied: false, reason: `Event ${eventId} already processed — idempotent skip.` };
+      if (evSnap.exists) {
+        return {
+          applied: false,
+          reason: ledgerKey === eventId
+            ? `Event ${eventId} already processed — idempotent skip.`
+            : `This money has already been accounted for (${ledgerKey}) — idempotent skip. ${eventId} describes a movement another event already applied.`,
+        };
+      }
       const wSnap = await tx.get(walletRef);
       const cur = wSnap.exists ? (wSnap.data() as WalletState) : freshWallet(id);
       const now = nowIso();
@@ -706,7 +730,7 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
         updatedAt: now,
       };
       tx.set(walletRef, next, { merge: false });
-      tx.set(eventRef, { eventId, orgId: id, action: outcome.action, creditedAcu: credit, planId: outcome.planId ?? null, at: nowIso() }, { merge: false });
+      tx.set(eventRef, { eventId, ledgerKey, orgId: id, action: outcome.action, creditedAcu: credit, planId: outcome.planId ?? null, at: nowIso() }, { merge: false });
       const what = outcome.action === "reverse_credit"
         ? `Reversed ${taken} ACUs${unrecovered > 0 ? `; ${unrecovered} had already been spent and is owed, to be netted off the next payment` : ""}.`
         : outcome.action === "downgrade" ? "Subscription ended — plan set to free; purchased ACUs kept."
@@ -745,8 +769,15 @@ export async function applyWebhookOutcome(orgId: string, outcome: WebhookOutcome
   }
 
   // Mem fallback — idempotent by event id set.
-  if (memEvents.has(eventId)) return { applied: false, reason: `Event ${eventId} already processed — idempotent skip.` };
-  memEvents.add(eventId);
+  if (memEvents.has(ledgerKey)) {
+    return {
+      applied: false,
+      reason: ledgerKey === eventId
+        ? `Event ${eventId} already processed — idempotent skip.`
+        : `This money has already been accounted for (${ledgerKey}) — idempotent skip. ${eventId} describes a movement another event already applied.`,
+    };
+  }
+  memEvents.add(ledgerKey);
   const before = await getWallet(id);
   const owedBefore = Math.max(0, Math.round(before.owedAcu || 0));
   const settled = Math.min(owedBefore, credit);

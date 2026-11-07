@@ -12532,3 +12532,131 @@ customer approved are the beats that get rendered.
 - **60 seconds is a hard ceiling.** `MAX_COMMERCIAL_SECONDS` is a constant, not
   a plan entitlement; a longer film would need the ceiling raised and the beat
   count with it.
+
+## 49. Ten Stripe events, and the double reversal that selecting 238 exposed (§178, 2026-11-07)
+
+**The owner's report.** *"All stripe events have been selected and the endpoint
+is impacted. Which one of these must be kept?"* — with all 238 event types
+pasted.
+
+### The answer: ten
+
+```
+checkout.session.completed        a plan is bought, or a top-up paid by session
+payment_intent.succeeded          a top-up paid as a bare payment intent
+invoice.paid                      the renewal that actually credits the wallet
+invoice.payment_failed            grace period before service is restricted
+customer.subscription.updated     plan change → the allowance follows it
+customer.subscription.deleted     cancellation → downgrade, purchased ACUs kept
+refund.created                    money returned → reverse that refund's ACUs
+charge.dispute.funds_withdrawn    a chargeback took the money → reverse
+charge.dispute.funds_reinstated   we won it → give the ACUs back
+charge.succeeded                  a CUSTOMER's own sale, for brand revenue
+```
+
+Nine are dispatched; `charge.succeeded` is read only by
+`brandRevenueFromEvent`, which is why it was missing from every published list —
+so there is now one exported list to tick, `SUBSCRIBE_EVENTS`, and the
+dispatcher's own `HANDLED_EVENTS` is the subset. Two lists is how a box goes
+unticked.
+
+**Everything else is acknowledged with 200 and ignored**, so 238 selected events
+was never a correctness problem — it is delivery volume, and Stripe's "impacted"
+warning is about delivery health. The noisy ones on a normal account are
+`invoice.updated`, `charge.updated`, `payment_intent.created`,
+`customer.updated` and `invoice.upcoming`; whole families (issuing, terminal,
+climate, financial connections, reserve, test helpers) will never fire here at
+all.
+
+### Answering the question found two defects, both only visible once more than one event about the same money is subscribed — which is exactly what selecting everything does
+
+**1. A DISPUTE REVERSED THE ACUs TWICE.** `charge.dispute.created` and
+`charge.dispute.funds_withdrawn` are two events, with two event ids, carrying
+the same amount for the same dispute. Idempotency was keyed on the event id,
+which cannot see that, so both applied: a £25 chargeback took **5,000 ACUs**
+back. The idempotency record showed two legitimate applications, so nothing
+anywhere said it had happened twice.
+
+**2. TWO PARTIAL REFUNDS REVERSED MORE THAN WAS REFUNDED.** The object on
+`charge.refunded` is the CHARGE, and `amount_refunded` is **cumulative**. Two
+£10 refunds on a £30 charge arrive as `1000` then `2000`, so reversing each took
+**£30 of ACUs back for £20 returned**. Stripe's own documentation points at
+`refund.created` from the `charge.refunded` entry — *"Listen to refund.created
+for information about the refund"* — and the owner's pasted list repeats it.
+
+Both are the same shape, and it is this repository's oldest: **a value that
+exists on one side of a boundary — the identity of the money that moved — and
+never gets carried to the other.**
+
+### The fix does not depend on which boxes are ticked
+
+That selection is not ours to control, so correctness cannot rest on it.
+
+- `WebhookOutcome.dedupeKey` carries the identity of the **movement** — the
+  refund, the dispute — and `applyWebhookOutcome` keys the idempotency record on
+  it instead of the event id. The second event about one dispute is an
+  idempotent skip **even if both are subscribed**.
+- The event id is still written into the record, because "which delivery did
+  this" has to stay answerable.
+- A payment has no movement id of its own, so the event id remains its key, and
+  a redelivered invoice still credits exactly once. Unchanged behaviour where
+  the event id was already the right question.
+- The key becomes a Firestore document id, so it is sanitised: a `/` in a
+  hostile payload's id would write outside its own document.
+- **Keyed on the refund, not the charge.** Deduping on the charge would have
+  been the easier fix and would have silently swallowed a second genuine refund
+  of the same amount — a test drives exactly that case.
+
+### And a third thing that was simply missing
+
+**A won dispute left the customer short.** `charge.dispute.funds_reinstated` was
+handled nowhere, so the reversal was permanent whatever the outcome: a customer
+who disputed a charge, **lost** the dispute, and had the money taken back off
+them by their own bank was still short the ACUs we had clawed back.
+
+It restores exactly what was taken, settles anything recorded as `owedAcu`
+first, and is deliberately **not** `allocate_acus`: no plan is activated and no
+conversion is reported, because a won dispute reported as a Purchase teaches the
+ad platform to bid for customers who charge back.
+
+### The two events that look like they should reverse, and must not
+
+`charge.refunded` and `charge.dispute.created` are acknowledged with an
+explanation in the note rather than left to the generic fall-through, because
+*"why did my refund not take the ACUs back"* is a question somebody will ask of
+the log and the log should answer it.
+
+### Verification
+
+- `tests/stripe-reversals.test.mjs` — **8 tests**, driven end to end through the
+  real dispatcher and the real wallet: buy 5,000 ACUs, dispute £25 with **both**
+  events arriving, assert the balance moved once.
+- **Seven mutants killed**: idempotency back to the event id alone; a dispute
+  opening reversing again; `charge.refunded` reversing the cumulative total; a
+  won dispute no longer restoring; keying on the charge instead of the refund;
+  dropping the sanitisation; and a reinstatement reported as a sale.
+- **An existing test asserted the defect as a feature.** *"A refund or a
+  chargeback takes the ACUs back"* required all three events to reverse. It was
+  written to prove reversal existed at all — which was the gap at the time — and
+  nobody asked what happens when two of them arrive. Rewritten.
+- **The advertised-events guard was textual and is now behavioural.** It scanned
+  the source for `event.type === "…"` branches and required every one to be
+  advertised, which cannot tell a branch that reverses money from a branch that
+  exists to explain why it does *not*. It now puts every branched type through
+  the real dispatcher and lets the answer decide which list it belongs on.
+
+### Gaps recorded
+
+- **NOT PROVEN against Stripe.** Every event above is constructed from Stripe's
+  published object shapes and driven through our own dispatcher and wallet. No
+  real dispute has been through this. The first real chargeback is the thing to
+  watch, and `/api/health/stripe` reports the recent handled events by type so
+  that is answerable without guessing.
+- **MIGRATION ORDER MATTERS.** `refund.created` must be subscribed *before*
+  `charge.refunded` is deselected, or refunds stop reversing in the window
+  between. The health check reports any subscribe-list event that is missing
+  from the configured endpoint.
+- **`charge.dispute.closed` is not handled.** A dispute lost without funds ever
+  being withdrawn (rare — Stripe normally withdraws on creation) would leave
+  nothing to reverse, which is correct, but the closure is not recorded
+  anywhere.

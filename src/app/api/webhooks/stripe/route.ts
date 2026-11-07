@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   verifyStripeSignature, handleStripeEvent, brandRevenueFromEvent, demoStripe, webhookEndpointUrl,
-  HANDLED_EVENTS, type StripeEventLike,
+  HANDLED_EVENTS, SUBSCRIBE_EVENTS, type StripeEventLike,
 } from "@/backend/stripe-billing";
 import { recordEvent } from "@/backend/ledger";
 import { applyWebhookOutcome } from "@/backend/wallet";
@@ -269,11 +269,19 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   return NextResponse.json({
     engine: "Stripe webhook — subscription → ACU allocation",
-    doctrine: "Verifies the Stripe signature (Node crypto, no SDK), then maps a small allowlist of billing events to append-only ACU-ledger + subscription outcomes. Idempotent by event id so a redelivered event never double-credits. ACUs are allocated at 20% of the plan price via the subscription engine. Provider/secret values are never returned.",
+    doctrine: "Verifies the Stripe signature (Node crypto, no SDK), then maps a small allowlist of billing events to append-only ACU-ledger + subscription outcomes. Idempotent by event id — and, where two events describe one movement of money, by the refund or dispute itself, so a dispute cannot reverse the same ACUs twice. ACUs are allocated at 20% of the plan price via the subscription engine. Provider/secret values are never returned.",
     // The host THIS request arrived on, not a constant. A hard-coded domain is
     // what sent 246 events to an address that redirected.
     endpointUrl: webhookEndpointUrl(req.headers.get("host") || undefined),
+    // TWO LISTS, AND THE DIFFERENCE MATTERS TO WHOEVER IS TICKING BOXES.
+    // `subscribeEvents` is what to select in Stripe; `handledEvents` is the
+    // subset the dispatcher acts on. `charge.succeeded` is on the first and not
+    // the second because it is read for a customer's own sales rather than for
+    // our wallet. Everything else is acknowledged with 200 and ignored, so a
+    // wider selection costs delivery volume and buys nothing.
+    subscribeEvents: SUBSCRIBE_EVENTS,
     handledEvents: HANDLED_EVENTS,
+    note: `Select exactly these ${SUBSCRIBE_EVENTS.length} events. Selecting all of them is what overwhelms an endpoint; selecting fewer than these is how money stops arriving.`,
     demo: demoStripe(),
   });
 }
