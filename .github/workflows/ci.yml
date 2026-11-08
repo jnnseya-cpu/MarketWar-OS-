@@ -82,6 +82,43 @@ jobs:
       - name: Theme contrast (both themes, real class pairs)
         run: npm run check:contrast
 
+      # EVERY GATE, NOT THE ONES SOMEBODY REMEMBERED.
+      #
+      # This workflow ran five of the twelve `check:*` scripts for weeks. The
+      # other seven — the data register, route exposure, module-level key reads,
+      # Firestore indexes, orphan modules, dead controls and the delivered-surface
+      # lock — existed, passed locally, and were never run by anything that could
+      # block a merge. A gate nothing runs is a comment.
+      #
+      # `tests/gate-wall.test.mjs` now fails if a `check:*` script exists in
+      # package.json and is missing from this file or from `npm run verify`, so
+      # the next gate cannot be added and forgotten.
+      - name: Orphan modules
+        run: npm run check:orphans
+
+      - name: Route exposure
+        run: npm run check:exposure
+
+      - name: Data register completeness
+        run: npm run check:register
+
+      - name: Credential reads at module level
+        run: npm run check:key-reads
+
+      - name: Firestore composite indexes
+        run: npm run check:indexes
+
+      - name: Dead controls
+        run: npm run check:controls
+
+      # NOTHING SILENTLY CHANGES OR DROPS. Compares the delivered surface —
+      # routes, pages, modules, agents, engines, the data register, the env
+      # catalogue, the Stripe event lists, every plan price and every pricing
+      # law — against docs/DELIVERED.lock.json. Additions pass; a removal or a
+      # changed number fails and names itself.
+      - name: Delivered-surface lock
+        run: npm run check:lock
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -91,6 +128,21 @@ jobs:
       - name: Production build
         run: npm run build
 
+      # THE BEHAVIOURAL PROOF, RE-RUN. Fourteen hermetic drivers exercise the
+      # real route handlers, the real wallet and stand-in providers. They were
+      # the strongest evidence in the repository and the only evidence nothing
+      # re-ran — so three of them had already rotted into a stack trace (a
+      # missing key, a server that was not started) and one carried a check that
+      # passed only when two timestamps landed in the same millisecond. The
+      # first automated sweep found all four. It runs AFTER the build because
+      # one of them audits the shipped pages.
+      #
+      # A driver passes only if it exits 0 AND reports "0 broken": exiting 0
+      # while printing "1 broken" is the exact shape of a reported success that
+      # never happened.
+      - name: Drivers (behaviour re-proven)
+        run: npm run verify:drivers
+
       # HIGH or CRITICAL fails the run. Moderate is printed for the record.
       #
       # A NEW ADVISORY LANDS WITHOUT ANYBODY TOUCHING THE CODE, and this step is
@@ -98,11 +150,14 @@ jobs:
       # 09-06 two HIGH advisories were published against `browserslist` — a
       # transitive dependency of autoprefixer — and every run since had failed
       # here. Pinned forward in `overrides`; see the note there.
-      - name: Dependency audit (high+)
-        run: |
-          npm audit --audit-level=high
-          echo "--- full advisory list (informational) ---"
-          npm audit || true
+      # RUN THE GATE, NOT A SECOND COPY OF ITS RULE. This was a bare
+      # `npm audit --audit-level=high`, while `scripts/check-advisories.mjs`
+      # holds the same rule PLUS the record of advisories with no patched
+      # version in the pinned line — so the gate and the workflow could
+      # disagree, and the one that decided a merge was the one with less
+      # information in it.
+      - name: Dependency audit (high+, with the unfixable record)
+        run: npm run check:advisories
 
       # Cheap, and the one class of mistake that cannot be undone by a revert.
       #

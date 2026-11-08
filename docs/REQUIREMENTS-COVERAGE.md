@@ -12660,3 +12660,137 @@ the log and the log should answer it.
   being withdrawn (rare — Stripe normally withdraws on creation) would leave
   nothing to reverse, which is correct, but the closure is not recorded
   anywhere.
+
+## 50. Stabilised and locked: nothing silently changes or drops (§179, 2026-11-08)
+
+**The owner's instruction.** *"Stabilise and lock everything it has been done so
+far and nothing silently change or drop."*
+
+Three separate things were wrong, and all three were silent by construction.
+
+### 1. The additive-only law had nothing enforcing it
+
+The standing directive is *"NEVER delete and NEVER downgrade previously
+delivered content, features, specifications, or source material"* — a rule in
+`CLAUDE.md` with no gate behind it. And the failure it describes makes no noise:
+a deleted route still builds, an agent dropped from the registry still
+type-checks, **a plan's price edited by one character still passes every test**,
+because no test names the old number.
+
+`docs/DELIVERED.lock.json` now holds **1,438 locked items**, measured from the
+code by `scripts/lock-inventory.mjs`:
+
+| | |
+| --- | --- |
+| **The laws as numbers** | `STANDARD_MARKUP` 4, `MARKUP_FLOOR` 2, `ACU_PER_GBP` 100, `ACU_ALLOCATION_RATE` 0.2, `NET_PROFIT_FLOOR` 1, `MIN_TOPUP_GBP` 5, the ten top-up tiers, `MAX_COST_GBP`, and the storyboard's pace and ceiling |
+| **Every price** | all 18 ACU lines, all 11 provider costs, all 8 plans with their price, caps and storage |
+| **Both Stripe lists** | `SUBSCRIBE_EVENTS` and `HANDLED_EVENTS`, because §178 is the proof that getting them wrong moves money twice |
+| **Every registry** | 7 capabilities, 93 data stores, 129 env names, 39 agents, 58 engines, 23 integrations, 3 avatar providers with their capability flags |
+| **The whole surface** | 200 routes, 97 pages, 273 backend and 111 shared modules, 91 components, 39 test files, 93 docs |
+| **The npm surface** | every script and every production dependency |
+
+**Names, not counts** — a count stays the same when one thing is swapped for
+another. **Anything added passes**, because growth is the expected direction and
+never needs permission from a gate. **Anything removed or changed fails, by
+name**, and the only way to clear it is `npm run lock:update`, which rewrites
+the snapshot deliberately and leaves a diff somebody reviews. The point is not
+that nothing may change — it is that **nothing changes without a line in a diff
+saying so**.
+
+Five mutants, all caught: a plan price edited by one character
+(`prices.plans.growth.monthlyGbp: 49 → 39`), the markup floor dropped to 1.5, an
+agent dropped from the registry, a driver unhooked from `package.json`, and a
+store removed from the data register.
+
+### 2. Seven of the twelve gates were not in CI, and three were not in `verify`
+
+This is the same silence applied to the wall itself. Twelve `check:*` gates
+existed; **`npm run verify` ran nine and the CI workflow ran five.** The data
+register, route exposure, module-level credential reads, Firestore indexes,
+orphan modules, dead controls and the advisory record all existed, passed when
+run by hand, and **were never run by anything that could block a merge**. Each
+was built in response to a real defect and then left where nothing would notice
+if it stopped firing — the gate had not been deleted, so nothing looked wrong.
+
+CI also re-implemented one gate's rule instead of running it: a bare
+`npm audit --audit-level=high`, while `check:advisories` holds the same rule
+*plus* the record of advisories with no patched version in the pinned line. Two
+expressions of one rule, and the one that decided a merge had less information
+in it.
+
+Both lists are now complete, and `tests/gate-wall.test.mjs` fails if a gate
+exists in `package.json` and is missing from either — so the next gate cannot be
+added and forgotten. Seven mutants killed, including CI reverting to the bare
+audit and `verify` regenerating the lock instead of checking it (a gate that can
+clear itself guards nothing).
+
+### 3. The strongest evidence in the repository was the only evidence nothing re-ran
+
+Twenty drivers prove behaviour by doing it — the real route handler, the real
+wallet, a stand-in provider with `fetch` intercepted only to rewrite the host.
+Every one of them ran exactly when somebody remembered to type its name, and
+`npm run verify:drivers` now re-runs the fourteen hermetic ones: **154
+behaviours re-proven, 0 broken**, in about fifteen seconds, after the build
+because one of them audits the shipped pages.
+
+**The first automated sweep found four things that were already wrong:**
+
+1. **`drive:capi` threw** `TypeError: Cannot read properties of null (reading
+   'createUser')` — `adminAuth` is null with no credentials.
+2. **`drive:loop` and `drive:modules` threw** `ECONNREFUSED 127.0.0.1:3000` —
+   they drive a running platform and nothing was started.
+3. **`drive:index` exited 1** because there was no production build.
+4. **`drive:reconcile` carried a check that passed only by luck.** *"A renewal
+   after the rise pays the new price"* built its wallet with `new Date()` BEFORE
+   recording the rise, so the two timestamps differed by however long the
+   machine took in between — and the check passed only when both landed in the
+   same millisecond. It did, the day it was written. The sweep reported **20
+   proven, 1 broken**. It is derived from the rise's own timestamp now.
+
+The first three are preconditions rather than defects, and a stack trace reads
+like a defect — so `scripts/driver-preflight.mjs` gives each a loud banner,
+`0 proven, 0 broken — NOT EXERCISED`, and exit 0. **A skip has to be louder than
+a pass or it reads as one**, and a red run for a reason that is not the code is
+how people learn to ignore red runs.
+
+The sweep itself reads each driver's printed tally rather than only its exit
+code, because **exiting 0 while printing "1 broken" is the exact shape of a
+reported success that never happened** — and one driver did exactly that.
+
+**And then the sweep had the same defect.** Half the drivers print
+`21 proven, 0 broken` and half print `35 proven / 0 broken`. The first version
+read only the comma, so eight drivers showed as *"exit 0, no tally printed"* and
+one of them printing "3 BROKEN" while exiting 0 would have been read as a pass.
+Reading both forms took what the sweep actually verifies from **154 behaviours
+to 385** — the other 231 were running and being ignored.
+
+**A fifth thing, found by running the sweep twice.** `drive:index`,
+`drive:crawl` and `drive:pages` each boot a production server with
+`spawn("npx", ["next", "start", …])`, which is TWO processes: npx, and the
+server it forks. Signalling the child reached npx and **left the real server
+listening** — so each driver passed once and then refused on every later run
+with *"something is already serving on this port"*. Correctly: it would
+otherwise have audited the previous build. But it made them single-use, which
+only showed up the moment anything ran them twice. `detached: true` plus a
+process-group kill (`stopServer`) closes it, and the sweep now returns
+**385 proven, 0 broken, twice in a row**.
+
+### What is locked, and what that does not mean
+
+It does not mean the platform is finished or that the keys are set. It means
+every delivered thing is now named in a file that a gate checks on every push,
+and the twelve gates plus the fourteen drivers run whether anybody remembers
+them or not.
+
+### Gaps recorded
+
+- **`drive:pages` (~100s) and `drive:crawl` (~2min, boots a server) are not in
+  the sweep**, for time. They are printed by name every run rather than quietly
+  left out, because a list that hides its own exclusions is how a gate becomes
+  decorative.
+- **`drive:capi`, `drive:loop` and `drive:modules` cannot be exercised here** —
+  Firebase Admin and a running server. They say so themselves; nothing claims
+  they passed.
+- **The lock covers the surface and the numbers, not behaviour.** A function can
+  be gutted while its name stays in the lock. That is what the 2,330 tests and
+  the drivers are for, and why both are now in the wall.

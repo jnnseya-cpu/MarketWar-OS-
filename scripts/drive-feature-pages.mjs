@@ -34,6 +34,7 @@
 // RANK — that is months of other people's behaviour, and no driver measures it.
 
 import { spawn } from "node:child_process";
+const { stopServer } = await import("./driver-preflight.mjs");
 import fs from "node:fs";
 import net from "node:net";
 
@@ -86,6 +87,7 @@ await run("npm", ["run", "build"]);
 say("  build ok");
 
 const server = spawn("npx", ["next", "start", "-p", String(PORT)], {
+  detached: true,
   cwd: new URL("..", import.meta.url).pathname, stdio: ["ignore", "pipe", "pipe"],
 });
 const ready = new Promise((resolve, reject) => {
@@ -228,6 +230,6 @@ try {
   say("served, reachable, in the sitemap, carrying its own schema, and passing the");
   say("same description check this platform charges customers to run on their site.");
 } finally {
-  server.kill("SIGTERM");
+  stopServer(server, "SIGTERM");
 }
 process.exit(broken ? 1 : 0);

@@ -25,7 +25,7 @@
     "smoke": "node scripts/smoke.mjs",
     "smoke:live": "node scripts/smoke-live.mjs",
     "seed:accounts": "node scripts/seed-accounts.mjs",
-    "verify": "npm run check:layers && npm run check:casts && npm run check:orphans && npm run check:exposure && npm run check:register && npm run check:key-reads && npm run check:advisories && npm run check:indexes && npm run lint && npm run typecheck && npm test && npm run build",
+    "verify": "npm run check:advisories && npm run check:casts && npm run check:contrast && npm run check:controls && npm run check:exposure && npm run check:indexes && npm run check:key-reads && npm run check:layers && npm run check:lock && npm run check:orphans && npm run check:palette && npm run check:register && npm run lint && npm run typecheck && npm test && npm run build && npm run verify:drivers",
     "check:layers": "node scripts/check-layers.mjs",
     "check:casts": "node scripts/check-casts.mjs",
     "check:palette": "node scripts/check-palette.mjs",
@@ -68,7 +68,10 @@
     "drive:presenter": "node --import tsx scripts/drive-presenter.mjs",
     "drive:costs": "node --import tsx scripts/drive-costs.mjs",
     "drive:pages": "node --import tsx scripts/drive-feature-pages.mjs",
-    "drive:reconcile": "node --import tsx scripts/drive-reconcile.mjs"
+    "drive:reconcile": "node --import tsx scripts/drive-reconcile.mjs",
+    "check:lock": "node --import tsx scripts/check-lock.mjs",
+    "lock:update": "node --import tsx scripts/update-lock.mjs",
+    "verify:drivers": "node scripts/verify-drivers.mjs"
   },
   "dependencies": {
     "firebase": "^12.16.0",
