@@ -280,10 +280,23 @@ say("");
 
 const listLlm = wallet.ACTION_COST_ACU.llm;
 const paidBeforeRise = { cycle: "monthly", planId: "growth", subscriptionCreditedAt: "2020-01-01T00:00:00.000Z" };
-const paidAfterRise = { cycle: "monthly", planId: "growth", subscriptionCreditedAt: new Date().toISOString() };
 const topUpOnly = { cycle: null, planId: "free" };
 
 const timingUp = await locks.notePriceChange("llm", listLlm, listLlm + 3, "drive");
+
+// DERIVED FROM THE RISE, NOT FROM THE CLOCK, AND THIS WAS A REAL BUG IN THIS
+// DRIVER. "Renewed after the rise" was built with `new Date()` BEFORE
+// `notePriceChange` recorded the rise, so the two timestamps differed by
+// whatever the machine took in between — and the check only passed when both
+// landed in the same millisecond. It did, the day it was written. The first
+// automated sweep of the drivers caught it as 20 proven, 1 broken: a check that
+// passed for a reason unrelated to what it tests, in the driver whose job is to
+// catch exactly that.
+const riseAt = locks.riseFor("llm")?.at || new Date().toISOString();
+const paidAfterRise = {
+  cycle: "monthly", planId: "growth",
+  subscriptionCreditedAt: new Date(Date.parse(riseAt) + 1000).toISOString(),
+};
 // The live table has to agree with the record, or the rule correctly ignores it.
 wallet.applyProviderCostOverrides({ llm: wallet.providerCostGbp().llm });
 const raised = locks.riseFor("llm");

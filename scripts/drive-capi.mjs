@@ -86,7 +86,13 @@ const FBC = "fb.1.1790000000000.AbCdEf_click-123";
 // Auth and not from the Stripe event. Without one the conversion is correctly
 // refused for having nothing to match on, which is a true answer to the wrong
 // question.
-const fa = await import(R("src/backend/firebase-admin.ts"));
+// PRECONDITION, CHECKED RATHER THAN ASSUMED. `adminAuth` is null with no
+// credentials, so this line used to be a null-property TypeError forty lines
+// into the run — a stack trace that reads like a defect when it is a missing
+// key. `requireFirebaseAdmin` prints what is needed and exits 0 with nothing
+// claimed.
+const { requireFirebaseAdmin } = await import("./driver-preflight.mjs");
+const fa = await requireFirebaseAdmin(R("src/backend/firebase-admin.ts"));
 await fa.adminAuth.createUser({ uid: org, email: EMAIL }).catch((e) => say(`  (auth user: ${e.code || e.message})`));
 
 async function deliver(event) {

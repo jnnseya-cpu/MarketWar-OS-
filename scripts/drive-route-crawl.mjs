@@ -131,7 +131,10 @@ const run = (cmd, args) => new Promise((res, rej) => {
 await run("npm", ["run", "build"]);
 say("  build ok");
 
-const server = spawn("npx", ["next", "start", "-p", String(PORT)], { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+const server = spawn("npx", ["next", "start", "-p", String(PORT)], {
+  // Its own process group, so the whole thing can be stopped — see stopServer.
+  detached: true,
+  cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
 await new Promise((res, rej) => {
   const t = setTimeout(() => rej(new Error("server never reported ready")), 120_000);
   const look = (d) => { if (/Ready in|started server/i.test(String(d))) { clearTimeout(t); res(); } };
@@ -220,7 +223,7 @@ for (const path of targets) {
 }
 
 await browser.close();
-server.kill("SIGTERM");
+stopServer(server, "SIGTERM");
 
 // ---------------------------------------------------------------------------
 // Verdict and evidence.

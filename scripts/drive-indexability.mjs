@@ -20,6 +20,7 @@
 
 import fs from "node:fs";
 import { spawn } from "node:child_process";
+const { stopServer } = await import("./driver-preflight.mjs");
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,6 +42,11 @@ const ORIGIN = `http://127.0.0.1:${PORT}`;
 // different set of rendered links.
 // ---------------------------------------------------------------------------
 if (!fs.existsSync(R(".next/BUILD_ID"))) {
+  // A MISSING BUILD IS A PRECONDITION, NOT A DEFECT. This used to exit 1, which
+  // a driver sweep reads as a broken driver — and a red run for a reason that is
+  // not the code is how people learn to ignore red runs.
+  const { requireBuild } = await import("./driver-preflight.mjs");
+  await requireBuild(R(".next/BUILD_ID"));
   say("No production build found. Run `npm run build` first — a dev server renders different pages.");
   process.exit(1);
 }
@@ -61,6 +67,7 @@ try {
 } catch { /* nothing listening, which is what we need */ }
 
 const server = spawn("npx", ["next", "start", "-p", String(PORT)], {
+  detached: true,
   cwd: root, env: { ...process.env, NODE_ENV: "production" }, stdio: ["ignore", "pipe", "pipe"],
 });
 let serverLog = "";
@@ -78,7 +85,7 @@ for (let i = 0; i < 60; i++) {
 }
 if (!up) {
   say(`The server did not come up on ${PORT}.\n${serverLog.slice(-800)}`);
-  server.kill("SIGKILL");
+  stopServer(server, "SIGKILL");
   process.exit(1);
 }
 say(`\nProduction server on ${ORIGIN}\n`);
@@ -254,7 +261,7 @@ try {
       /auditIndexability/.test(r.note));
   }
 } finally {
-  server.kill("SIGKILL");
+  stopServer(server, "SIGKILL");
 }
 
 say(`\n${proven} proven / ${broken} broken`);

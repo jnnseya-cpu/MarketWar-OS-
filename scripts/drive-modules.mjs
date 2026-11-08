@@ -59,6 +59,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { solve } from "../src/shared/proof-of-work.ts";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
+
+// PRECONDITION. This drives the running platform over HTTP, so with nothing
+// listening it used to fail with ECONNREFUSED after printing what it was about
+// to prove — which reads as a broken platform rather than one that is not
+// started. It now says which, and claims nothing.
+const { requireServer } = await import("./driver-preflight.mjs");
+await requireServer(Number(new URL(BASE).port || 3000));
 let signedInEmail = "";
 const MAILBOX = process.env.MW_DRIVE_MAILBOX || "";
 
