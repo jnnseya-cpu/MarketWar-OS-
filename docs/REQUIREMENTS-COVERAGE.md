@@ -12794,3 +12794,131 @@ them or not.
 - **The lock covers the surface and the numbers, not behaviour.** A function can
   be gutted while its name stays in the lock. That is what the 2,330 tests and
   the drivers are for, and why both are now in the wall.
+
+---
+
+## 51. Trend Intelligence AI v2.3: the brief contract and the score, built after reading what already existed (§180, 2026-11-10)
+
+The owner attached *"Trend Intelligence AI — Developer build and distribution
+specification, Version 2.3, 10 November 2026"*: 530 lines, 22 numbered sections
+plus Appendix A's JSON Schema. No instructions came with it.
+
+**The first work was not building.** Rule 1 of the engineering directive is
+*never repeat completed work; inspect what exists first*, and the
+Growth-Engine precedent is that three quarters of a large spec is usually
+already shipped. So the spec was mapped section by section against `src/`
+before a line was written, and `docs/TREND-INTELLIGENCE-COVERAGE.md` is that
+map. It found far more coverage than a first read suggests:
+
+| The spec asks for | Already in `src/` |
+| --- | --- |
+| §3 trend detection, §5 ranking | `trend-watch.ts`, `opportunity-radar.ts`, `opportunity-board-store.ts` |
+| §8 experiments, holdouts, history | `experiments.ts`, `experiment-history.ts` |
+| §9 approvals, §18 invalidation | `approvals.ts`, `asset-versions.ts` (versions + restore) |
+| §10 the owned surface | `landing.ts` + `landing-store.ts` — native, at `/b/{brandId}/{slug}` |
+| §11 measurement, "measured not predicted" | `page-analytics.ts` |
+| §13 at-least-once publication + receipts | `publication-ledger.ts` |
+| §14 channel freeze / kill switch | `emergency-stop.ts` |
+| §19 audit | `audit-log.ts` |
+
+**The spec settles its own scope.** §12 and §198 say the contracts are the
+deliverable and the stack is not. So the two things that were genuinely absent
+and that everything else depends on were built, and nothing was rebuilt:
+
+**`src/shared/growth-brief.ts` — §6 and Appendix A, the keystone.** Two
+deliberately separate gates, because the spec's own sentence is *"a
+schema-valid object can still fail these checks"*:
+
+- `validateShape` — the **closed** object. 22 required fields, nothing extra,
+  ids matching the pattern, scores in range, a two-letter market, a timestamp
+  that really ends in `Z`, channels from the enum. It reports **every** error,
+  not the first, and the closed check runs **first**.
+- `resolveEffective` — the runtime rules, in a fixed order:
+  `invalid` → `unreadable_window` → `not_yet_valid` → `expired` →
+  `channel_not_allowed` → `market_mismatch` → `locale_mismatch` →
+  `topic_mismatch` → `policy_mismatch`, each returning
+  `{ ok: false, baseline: true, code, reason }` rather than throwing.
+
+`additionalProperties: false` is load-bearing and not pedantry. Conformance
+scenario **TI-06** is *"model input contains instructions to bypass approvals
+or change spend"* with the required outcome *"output cannot produce a
+privileged action."* A brief is partly generated and travels through a model;
+ignoring an unknown field is exactly how an injected `allow_publish: true` or
+`spend_cap: 99999` becomes a field somebody later reads. So an extra field is a
+**rejection**.
+
+**`src/shared/trend-score.ts` — §5.4, §5.5 and §17.** Opportunity as 25% demand
++ 25% fit + 20% intent + 15% timing + 15% readiness; confidence computed
+**independently** as 35% source quality + 25% corroboration + 20% coverage +
+20% freshness; corroboration as the spec's step function (0 / 80 / 100, never a
+curve); the §5.3 gates (≥20 observations, z ≥ 2, ≥4 comparable periods) applied
+**before** a count feed is mapped to a score; and §5's decision table at
+`<60/<55 → archive`, `≥75/≥75 → brief`, `≥85/≥85 + explicit opt-in →
+auto_eligible`.
+
+**The cap at 69 is the single most important number in the file.** A lone
+source family with perfect quality, coverage and freshness scores **75** on the
+weights alone — which clears the brief threshold on one feed. Capping
+single-family confidence at 69 is what makes *"one source is never enough"*
+true rather than merely likely. Two vetoes are not low scores: an out-of-market
+topic at 95 is refused by name, and missing readiness **blocks activation**
+instead of lowering the number.
+
+### Verified against the spec's own conformance numbers
+
+The spec publishes worked examples. The code reproduces them exactly:
+**opportunity 86.25**, **confidence 83.5** (at two independent families), and
+**69** for a single family with everything else perfect. The unrounded values
+matter — `decide()` is driven on the raw numbers, because rounding 74.6 up to
+75 would promote a watch to a brief.
+
+### The instrument was wrong before the code was, twice
+
+**The conformance probe disagreed with the spec** — 88.5 against the published
+83.5. The probe had passed `independentFamilies: 3`; the spec's input of 80 is
+the corroboration **value** for exactly **two** families. The code was right.
+
+**A security test passed for the wrong reason.** The prototype-pollution case
+was written as `{ __proto__: "x" }`. In an object literal that sets the
+prototype and leaves **no own enumerable key**, so `Object.keys` returns `[]`,
+nothing was ever injected, and the assertion was comparing `undefined`. The
+computed form `{ ["__proto__"]: "x" }` — which is also what `JSON.parse` of a
+request body produces — is the real one, and the test now goes over the wire as
+well and checks `Object.prototype` was not polluted.
+
+### 26 tests, and 22 mutants killed
+
+`tests/trend-intelligence.test.mjs` accepts §6's canonical fixture verbatim and
+drives every refusal path. It was then mutation-tested, because a test that
+cannot fail proves nothing: **22 of 22 realistic mutants killed** — the closed
+check made advisory, expiry made inclusive, `not_yet_valid` dropped, ZZ allowed
+to satisfy a country lookup, policy and locale mismatches ignored, the channel
+checked before expiry, the 69 cap removed and raised to 75, corroboration made
+a curve, the MAD floor removed, the gate applied after mapping, both gates
+weakened, the scores rounded before the table, a veto treated as a low score,
+the auto band granted without opt-in, cutoffs moved, the readiness veto removed,
+a weight shifted, and the history gate dropped.
+
+### Gaps recorded
+
+- **CONFLICT: two opportunity scores, both kept** (per the additive-only law).
+  `opportunity-radar.ts` publishes `Demand × Commercial Intent × Relevance ×
+  Timing × Authority × Conversion ÷ Competition` and the landing pages describe
+  it. The spec's is a weighted sum of five different factors on 0–100 with
+  vetoes and a separate confidence. **They are not the same function and they
+  answer different questions** — the radar ranks *content* opportunities for a
+  brand, the spec's ranks *demand* opportunities for an installation and gates
+  activation. Resolution: the spec's lives in its own named module
+  (`src/shared/trend-score.ts`) for its own purpose, the radar's published
+  formula is untouched, and neither silently becomes the other. Full note in
+  `docs/TREND-INTELLIGENCE-COVERAGE.md` §5.
+- **§2's keyless release gate is the one hard miss.** The spec requires a
+  first-party signal source that works with no key. Today the only live signal
+  source is `search.ts`, which needs `SERPER_API_KEY` and is currently
+  rejected 401/403 here. Nothing claims otherwise.
+- **Not yet built, and named in the coverage doc's build order:** the
+  observation/evidence model (§5, §15), a keyless first-party signal source
+  (§2), effective-brief resolution over HTTP (§16), and the typed action
+  envelope over the existing approval/version/ledger machinery. Steps 1 and 2 —
+  the two modules above — were done first because every later step is wrong
+  without them.
