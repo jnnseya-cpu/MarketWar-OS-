@@ -70,6 +70,7 @@
     "drive:pages": "node --import tsx scripts/drive-feature-pages.mjs",
     "drive:reconcile": "node --import tsx scripts/drive-reconcile.mjs",
     "drive:brief": "node scripts/drive-brief.mjs",
+    "drive:provider": "node --import tsx scripts/drive-brief-to-provider.mjs",
     "check:lock": "node --import tsx scripts/check-lock.mjs",
     "lock:update": "node --import tsx scripts/update-lock.mjs",
     "verify:drivers": "node scripts/verify-drivers.mjs"

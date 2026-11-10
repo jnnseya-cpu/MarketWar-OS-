@@ -39,6 +39,7 @@ export const ENV_CATALOGUE: EnvVar[] = [
   { name: "GEMINI_API_KEY", group: "AI", secret: true, unlocks: "Veo video rendering, and AI fallback.", where: "aistudio.google.com → Get API key" },
   { name: "AI_GATEWAY_ORDER", group: "AI", secret: false, unlocks: "The order providers are tried in, so you control which one carries the cost first.", where: "Your choice, e.g. anthropic,openai,gemini." },
   { name: "AI_MONTHLY_CEILING_USD", group: "AI", secret: false, unlocks: "A hard ceiling on the platform's OWN AI spend — crons, demos, your testing. A paying customer's run is never blocked by it.", where: "Your choice, e.g. 50." },
+  { name: "ANTHROPIC_BASE_URL", group: "AI", secret: false, unlocks: "Points the AI gateway at an Anthropic-compatible proxy or gateway instead of the provider directly. Leave unset for the provider.", where: "Your own gateway's URL. Must be https (http is accepted only on 127.0.0.1, for a local stand-in) — anything else is refused and the provider is used. Host-only: redirecting AI traffic is a deployment decision, never an in-product setting." },
   { name: "ANTHROPIC_MODEL", group: "AI", secret: false, unlocks: "Pins which Claude model every agent runs on, instead of the default.", where: "A Claude model id from the Anthropic docs." },
   { name: "OPENAI_MODEL", group: "AI", secret: false, unlocks: "Pins which OpenAI text model the gateway uses, instead of the default.", where: "An OpenAI model id your account can use." },
   { name: "GEMINI_MODEL", group: "AI", secret: false, unlocks: "Pins which Gemini text model the gateway uses, instead of the default.", where: "A Gemini model id from Google AI Studio." },
@@ -197,6 +198,11 @@ export const ENV_TUNING: string[] = [
   // the catalogue's own guard is what found it, and an exclusion that hides one
   // name hides the next one too.
   "DRIVE_PORT",
+  // The port `scripts/drive-brief-to-provider.mjs` runs its STAND-IN PROVIDER
+  // on, default 3125. Harness-only, same reasoning as DRIVE_PORT above: it is
+  // listed because the catalogue's own guard is what found it, and an
+  // exclusion that hides one name hides the next one too.
+  "DRIVE_PROVIDER_PORT",
   // A TEST-HARNESS VARIABLE, AND LISTED RATHER THAN HIDDEN because of what it
   // does. `scripts/drive-bulk.mjs` sets it to talk to the LOCAL self-signed TLS
   // SMTP server in `tests/helpers/fake-smtp.mjs` — the same thing

@@ -13186,3 +13186,158 @@ DNS, 7 skipping loudly); build clean; `verify:drivers` 385 behaviours, 0 broken.
   the design working, not a gap to paper over. Until a second independent
   family exists, briefs are issued through the API, and the invisible path
   consumes whatever is there.
+
+---
+
+## 54. The two caveats, closed (§183, 2026-11-10)
+
+The owner quoted back the two things §182 said were not done, which is an
+instruction to finish them. Both are closed, and both turned out to be the
+load-bearing ones.
+
+### 1. §2's release gate — a second family, with no key
+
+**The machinery could not, in principle, produce anything.** The platform had
+exactly one live signal source: a news search needing `SERPER_API_KEY`. One
+source family caps confidence at 69; the brief band needs 75. So no signal,
+however strong, could ever clear it — not because of a bug, but because one
+family is never enough evidence to authorise a live change, which is the rule
+working exactly as designed and leaving the pipeline inert.
+
+`src/backend/first-party-signals.ts` closes it with data the platform already
+holds. Every owned page (`/b/{brandId}/{slug}`) records views, CTA clicks and
+leads **bucketed by day**, with no third party and no per-visitor record. That
+is a real count feed about real demand on surfaces the customer owns — an
+independent `first_party` family, needing no key and no extra call.
+
+It emits `Observation` records that answer §5/§15's evidence model:
+
+- **Demand** runs through §5.3's gates and is **null** when they refuse it. The
+  gates run before the mapping, so a number that has not earned its place never
+  exists.
+- **Intent** is a measured CTA click-rate, **null** below 100 views in the
+  window — the same floor `page-analytics.ts` already applies to its own
+  reports, because two modules disagreeing about when a rate becomes real is
+  how one screen calls something significant while another calls it noise.
+- **Readiness** is the one thing first-party data answers outright: a live
+  owned page that real people reach is not a proxy for "can this installation
+  act", it *is* that.
+- **Every field is `number | null`, and null means not measured.** Scoring a
+  missing measurement as zero is how a brand with no data acquires a bad score
+  instead of no score.
+
+Wired into the weekly cron, invisibly: it reads the brand's own observations
+before the paid searches and hands their **source names** to the sweep, so the
+family map derives the count. Twenty pages of our own remain one family.
+
+**Measured end to end:** the same findings that cap at 69 on news alone reach
+**confidence 86.25 and the brief band** once the brand's own analytics
+corroborate them.
+
+### 2. The brief reaching a real provider
+
+`ANTHROPIC_BASE_URL` was hard-coded, so nothing could stand between the
+platform and the network: *"the brief is gathered"* and *"the provider receives
+the brief"* were two claims with a string literal between them.
+
+The gateway now takes an **environment-only** base URL, with two rules that are
+not negotiable: it is never read from a request, and it must be `https` unless
+it is loopback — the API key travels in a header on every call, so a plain-http
+override anywhere else would put a live credential on the wire in clear. A bad
+value is **refused and the default used**, never silently honoured. It is
+catalogued, and `platform-keys.ts` **refuses it in the admin screen**: a screen
+that can redirect AI traffic is a screen that can exfiltrate every prompt.
+
+`npm run drive:provider` then stands up a real HTTP server speaking the
+Messages wire format, points the gateway at it, and runs a **real agent call
+through the real route** — nothing stubbed, patched or injected; the route,
+the pre-flight, the brand-access gate, the brief store, the approvals workflow,
+the gateway, its retry and its timeout all run. Only the far side of the socket
+is replaced, which is the one part that cannot exist here.
+
+**22 proven, 0 broken.** The provider receives the brief, with its topic,
+audience, approved claim id, prohibited claim stated as absolute, call to
+action and the brief's own identity — and a baseline run, as the control,
+carries none of it.
+
+### Three defects, found by driving
+
+**The current window excluded today.** It started at `now - 7 days` and counted
+seven days forward, landing on yesterday — so every event recorded today was
+invisible to the signal whose entire job is noticing today's movement. Found by
+driving it against the real store: five views recorded seconds earlier produced
+no observation at all.
+
+**`combine` was handed families where it needed sources.** `familiesOf` maps
+SOURCE names, so `"first_party"` found no mapping and was dropped, while
+`"news"` resolved only because that one string happens to be both. A candidate
+backed by news AND the brand's own analytics therefore reported **one**
+independent family — the exact answer that makes the cap refuse everything,
+forever, for a reason no screen would ever have explained. **A value read as
+the wrong KIND across a boundary: this repository's oldest and most expensive
+defect, and it would have silently undone the entire release gate.**
+
+**A comment claimed more than its code did.** `sumWindow`'s note said skipping a
+missing day "would shorten the window and inflate every rate" — it would not;
+the arithmetic is identical, and a mutation sweep proved the two forms
+indistinguishable. The real property is that the window is a fixed span counted
+forward, not a walk over whichever days have buckets. The comment now says that,
+and a test holds it.
+
+### Verified
+
+**62 tests** and **59 of 62 mutants killed**, with the three survivors named:
+the withdrawal-refusal branch and the pre-flight `catch` are unreachable by any
+constructible input, and the Firestore `where` clause is no longer solely
+load-bearing because `onlyThisBrand` filters again. All 12 gates pass; 2,412
+tests (2,393 pass, the same 12 failing only for want of DNS, 7 skipping
+loudly); build clean; `verify:drivers` 385 behaviours; `drive:brief` 43/0 and
+`drive:provider` 22/0, each twice.
+
+### The other session's observation model, and where the two meet
+
+Mid-flight, `src/shared/observation.ts` (the §5 schema with provenance, the §15
+source-version key, TI-01 conflict detection, TI-04 syndication collapse, §5.1
+canonicalisation, §17 freshness) and `src/shared/source-registry.ts` (the §3
+registry with `access_path`) arrived on this branch from another session. Kept,
+rebased onto, and reconciled rather than duplicated.
+
+**One name per concept.** My type was also called `Observation`; theirs IS the
+observation schema, so mine became `PageSignal` — a page-level signal that
+*converts into* an observation. Two things sharing a name is how two models
+drift into disagreeing about the same word.
+
+**The join is the part that matters**, because a registry nothing registers in
+and a schema nothing emits are both just type definitions:
+
+- The keyless source registers as `access_path: "public_keyless"` and a test
+  runs it through their own `validateSource` and `isKeyless`. **§2's keyless
+  claim is now checkable rather than a sentence somebody wrote once.**
+- A page's week converts to a §5 observation whose §15 key makes a re-read a
+  **duplicate** and a changed count a **conflict**. Without that, a cron that
+  ran twice would double a brand's apparent corroboration — the one number the
+  single-family cap depends on.
+- Their schema **refused my empty `geography`/`locale`/`segment`**, and was
+  right to: blank reads as "not applicable" when the truth is "not measured".
+  The honest values are `ZZ` / `und` / `all` — explicit unknowns. Never a
+  guessed country, because a brief resolved for a country off an observation
+  that never knew one is the exact mistake §16's market rule exists to prevent.
+
+### Gaps recorded
+
+- **A probe run from outside the repository gets a SECOND INSTANCE of every
+  `@/`-aliased module.** An hour went into a "store that would not persist"
+  that was really two copies of `page-analytics.ts` with separate memory. The
+  project's own tests use relative imports and are unaffected; scratch probes
+  that touch module state must live inside the repo or use relative paths. The
+  lesson is the dangerous one: the instrument was wrong, and the code was right.
+- **`INTENT_AT_FULL_SCALE_PCT` is a configured judgement**, declared once with
+  its reasoning, exactly like `FAMILY_QUALITY`. A 20% click-through from page to
+  CTA is the point the scale reaches 100. It is not derived from outcomes,
+  because there are not yet enough of them to derive anything from.
+- **Still not built:** a persisted source registry with `access_path` and a
+  source-version key, and the typed action envelope.
+- **Nothing is auto-issued yet.** A brief still has to be issued through the
+  API and approved by a person. The gate is closed in the sense that the scores
+  can now reach the band; turning that into automatic issuance is a separate
+  decision about what the platform may do unattended, and is not implied here.

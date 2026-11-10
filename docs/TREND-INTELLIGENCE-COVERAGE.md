@@ -236,20 +236,25 @@ approval**, because there is no brief to freeze it against.
    that file would itself reject. It sits exactly between the two layers above
    and the store below — the step that *constructs* the object the store then
    issues, reviews and resolves.
-3. 🔶 **The observation and evidence model** (§5, §15). The denominator. The
-   pure model is now DONE — `src/shared/observation.ts` (the §5 schema, the §15
-   source-version key, TI-01 conflict detection, TI-04 syndication collapse,
-   §5.1 canonicalisation, §17 freshness) and `src/shared/source-registry.ts`
-   (the §3 registry with `access_path`, the keyless gate and staleness).
-   Corroboration counts *families* rather than sources and freshness is measured
-   from the window close. What remains is the Firestore PERSISTENCE:
-   `observations`/`evidence`/`source_registry` collections registered in
-   `privacy.ts`, composite-key row rules, and write-time dedupe/conflict
-   enforcement.
-4. 📦 **A keyless first-party source** (§2, §3 row 1). The release gate. Still
-   open: the only live signal source is `search.ts`, which needs
-   `SERPER_API_KEY` — but the observation model it would normalise into now
-   exists.
+3. ✅ **The observation and evidence model** (§5, §15). Built from both ends
+   and they meet: `src/shared/observation.ts` is the §5 schema with provenance,
+   the §15 source-version key, TI-01 conflict detection, TI-04 syndication
+   collapse, §5.1 canonicalisation and §17 freshness; `src/shared/source-registry.ts`
+   is the §3 registry with `access_path` as the keyless gate. The first real
+   PRODUCER of observations is `src/backend/first-party-signals.ts` below, which
+   registers as `public_keyless` and emits a measured count feed with each
+   component **null where nothing measured it**, never a quiet zero. What
+   remains is Firestore PERSISTENCE: `observations`/`evidence`/`source_registry`
+   collections in `privacy.ts`, composite-key row rules, and write-time
+   dedupe/conflict enforcement.
+4. ✅ **A keyless first-party source** (§2, §3 row 1) —
+   `src/backend/first-party-signals.ts`. **The release gate is closed.** The
+   brand's own owned pages already record views, CTA clicks and leads by day;
+   that is an independent `first_party` family needing no key, no third party
+   and no extra call. Until it existed the platform had exactly ONE live source
+   family, and one family is capped at 69 while the brief band needs 75 — so
+   nothing could ever clear the band, in principle, however strong a signal
+   looked.
 5. ✅ **Effective-brief resolution** (§16) — `src/backend/growth-brief-store.ts`,
    served over HTTP on `/api/opportunity-radar` (`effective`), consulting the
    platform's own approvals workflow and the emergency stop's publish lane.
@@ -267,6 +272,7 @@ that already existed:
 | --- | --- |
 | §3 source families | `SOURCE_FAMILY`, over the twelve `SIGNAL_SOURCES` the radar has published since §13. A test fails if a source is ever added without a family. |
 | §5.5 confidence + vetoes | Computed for every finding of the existing **weekly trend sweep** (`trend-watch.ts`). Its join/watch/reject recommendation is untouched — the evidence score sits beside it. |
+| §2 the keyless family | `first-party-signals.ts`, over the brand's own `page_stats` — the second independent family, read by the weekly cron. |
 | §5.5 freshness | Measured from the publication date `search.ts` now carries. It was dropping the provider's `date` and `source` on every news result, so freshness was unmeasurable. |
 | §5 activation decision | `assess` on the existing `/api/opportunity-radar`, beside the radar's own formula so the two are never confused. |
 | §6 the brief | Issued only when §5's band clears; stored per brand; listed and resolved on the same route. |
@@ -276,7 +282,7 @@ that already existed:
 | §14.5/§16 run-time adoption | `brief-preflight.ts`, on the **existing agent route** — an agent silently picks up the brief in force for its channel, exactly as that route already picks up live DNS, brand memory and a site crawl. No approved brief means baseline behaviour, silently. |
 | The surface | **None, by owner directive.** This machinery works invisibly: no panel, no chips, no screen to operate. A brief appears only as an item in the Collaboration & Approvals workflow that already existed. `tests/trend-intelligence.test.mjs` fails if any of it is drawn again. |
 
-`npm run drive:brief` exercises all of it over HTTP and then in a real browser — including that the screen shows **none** of it.
+`npm run drive:brief` exercises all of it over HTTP and then in a real browser — including that the screen shows **none** of it. `npm run drive:provider` stands up a server speaking the provider's own wire format and reads what the gateway actually sent, which is the only way to prove the brief leaves the building.
 
 ## What this document is not
 

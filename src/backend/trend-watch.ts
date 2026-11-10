@@ -227,6 +227,21 @@ export async function watchTrends(input: {
   subjects?: string[];
   /** Where this business sells. A story breaking elsewhere is not its story. */
   market?: TargetMarket | null;
+  /**
+   * THE BRAND'S OWN FIRST-PARTY SIGNALS, if the caller gathered them.
+   *
+   * This is §2's release gate in one argument. A news sweep is ONE source
+   * family and one family is capped at 69, so on its own it can never clear
+   * the brief band — not because the news is weak, but because a single family
+   * is never enough evidence to authorise a live change. The brand's own page
+   * analytics are an INDEPENDENT family that needs no key, so when they are
+   * supplied the same signal can corroborate and the cap stops binding.
+   *
+   * Passed in rather than read here on purpose: `trend-watch` would otherwise
+   * reach into a store, and a function that reads its own inputs cannot be
+   * driven with the inputs that matter.
+   */
+  firstPartySources?: readonly string[];
   now?: () => number;
 }): Promise<TrendWatchResult> {
   const vocab = vocabulary(input.extraction);
@@ -303,6 +318,11 @@ export async function watchTrends(input: {
         title, snippet: r.snippet || "", link: r.link || "", relevance, gate, action, why,
         ageHours,
         evidence: evidenceFor({
+          // The news family, plus whatever independent families the caller
+          // actually gathered for this brand. Names, not counts — the family
+          // map derives the number, so nothing can claim corroboration it
+          // does not have.
+          sources: [...SWEEP_SOURCES, ...(input.firstPartySources ?? [])],
           rejected: gate.verdict === "reject",
           relevanceKnown: relevance.score !== null,
           coverage, ageHours,
@@ -324,7 +344,13 @@ export async function watchTrends(input: {
       "Relevance is measured as overlap with your site's own vocabulary and the matched words are shown, so you can check the reasoning rather than trust a score.",
       // Said once, here, so nobody reads "worth acting on" as "safe to act on
       // automatically". The sweep is one source family by construction.
-      `Everything here comes from one source family (news), which caps confidence at ${SINGLE_FAMILY_CAP}: these are recommendations for a person to weigh, and no number in this sweep can authorise a live change on its own.`,
+      // SAID ONCE, AND ONLY WHEN TRUE. This line used to assert "one source
+      // family" unconditionally; once a brand's own analytics corroborate a
+      // signal that is simply false, and a caveat that is false is worse than
+      // none because the next reader stops believing the true ones.
+      (input.firstPartySources?.length ?? 0) > 0
+        ? `Corroborated against this brand's own first-party signals as well as the news, so a finding here can carry more confidence than a news sweep alone ever could — the cap at ${SINGLE_FAMILY_CAP} binds a single family, and there is more than one.`
+        : `Everything here comes from one source family (news), which caps confidence at ${SINGLE_FAMILY_CAP}: these are recommendations for a person to weigh, and no number in this sweep can authorise a live change on its own.`,
     ].join(" "),
   };
 }

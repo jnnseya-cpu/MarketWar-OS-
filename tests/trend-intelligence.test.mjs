@@ -1045,3 +1045,373 @@ test("ONLY A RESOLUTION THAT AUTHORISES WORK IS PICKED UP", () => {
 });
 
 function firstOf(xs) { return preflight.firstInForce(xs); }
+
+// ===========================================================================
+// §2's RELEASE GATE: a second independent family, with no key.
+//
+// Until this existed the platform had exactly one live signal source — a news
+// search needing SERPER_API_KEY — and one family caps confidence at 69 while
+// the brief band needs 75. NOTHING COULD EVER CLEAR THE BAND, in principle,
+// however strong a signal looked. The machinery was complete and could not
+// produce anything.
+// ===========================================================================
+
+const fp = await import("../src/backend/first-party-signals.ts");
+const pageAnalytics = await import("../src/backend/page-analytics.ts");
+
+const DAY = 86_400_000;
+const NOW = Date.parse("2026-11-10T12:00:00Z");
+const dayKey = (offsetDays) => new Date(NOW - offsetDays * DAY).toISOString().slice(0, 10);
+
+/** A page with `weekly` views in each of the prior weeks and `current` this week. */
+function pageWith({ current, weekly, clicks = 0, slug = "topic", brandId = "b1" }) {
+  // SPREAD EXACTLY, remainder on the first day. Dividing by seven and rounding
+  // made "100 views" into 98, and the test that caught it was asserting about
+  // the rate floor — so the fixture would have been read as the code being
+  // wrong about its own threshold.
+  const spread = (total, d) => Math.floor(total / 7) + (d === 0 ? total % 7 : 0);
+  const daily = {};
+  for (let d = 7; d < 42; d++) daily[dayKey(d)] = { views: spread(weekly, d % 7), ctaClicks: 0, leads: 0 };
+  for (let d = 0; d < 7; d++) daily[dayKey(d)] = { views: spread(current, d), ctaClicks: spread(clicks, d), leads: 0 };
+  return { brandId, slug, views: 0, ctaClicks: 0, leads: 0, daily };
+}
+
+test("THE CURRENT WINDOW INCLUDES TODAY — it did not, and today was invisible", () => {
+  // The first version started at `now - 7 days` and counted seven days
+  // forward, which lands on YESTERDAY. So every event recorded today was
+  // invisible to the signal whose entire job is noticing today's movement.
+  // Driving it against the real store is what caught it: five views recorded
+  // seconds earlier produced no observation at all.
+  const daily = { [dayKey(0)]: { views: 11, ctaClicks: 0, leads: 0 } };
+  const { current } = fp.periodsFor({ daily }, NOW);
+  assert.equal(current, 11, "today's events must be inside the current window");
+});
+
+test("a window sums the days it covers, and counts a quiet day as zero", () => {
+  const daily = {
+    [dayKey(0)]: { views: 5, ctaClicks: 1, leads: 0 },
+    [dayKey(2)]: { views: 7, ctaClicks: 0, leads: 0 },
+    // dayKey(1) is absent entirely — a day with no traffic.
+  };
+  assert.equal(fp.sumWindow({ daily }, "views", NOW - 2 * DAY, 3), 12);
+  assert.equal(fp.sumWindow({ daily }, "ctaClicks", NOW - 2 * DAY, 3), 1);
+  // A MISSING DAY IS A ZERO, NOT A SKIPPED DAY. Skipping it would shorten the
+  // window and quietly inflate every rate computed from it.
+  assert.equal(fp.sumWindow({ daily }, "views", NOW - 1 * DAY, 2), 5);
+  assert.equal(fp.sumWindow({ daily: {} }, "views", NOW, 7), 0);
+});
+
+test("history is the periods BEFORE this one, and never overlaps it", () => {
+  const p = fp.periodsFor(pageWith({ current: 210, weekly: 14 }), NOW);
+  assert.equal(p.current, 210);
+  assert.equal(p.history.length, 5);
+  // Each prior week is its own 7 days: the baseline must not contain the
+  // movement being measured, or the rise damps itself.
+  for (const h of p.history) assert.equal(h, 14);
+  assert.ok(Date.parse(p.from) < Date.parse(p.to));
+  assert.equal(Math.round((Date.parse(p.to) - Date.parse(p.from)) / DAY), fp.PERIOD_DAYS - 1);
+});
+
+test("an observation reports only what it measured, and null for the rest", () => {
+  // A real rise: ~14 views a week for five weeks, 210 this week.
+  const strong = fp.pageSignalFrom(pageWith({ current: 210, weekly: 14, clicks: 28 }), NOW);
+  assert.ok(strong);
+  assert.equal(strong.family, "first_party");
+  assert.equal(strong.source, "website_analytics");
+  assert.equal(strong.passesGate, true);
+  assert.equal(strong.demand, 100);
+  assert.ok(strong.intent > 0 && strong.intent <= 100);
+  assert.equal(strong.readiness, 100);
+  assert.match(strong.evidenceId, /^ev_fp_[0-9a-f]{12}$/);
+
+  // A RISE ON A HANDFUL OF EVENTS IS NOISE — §5.3, and the gate runs before
+  // the mapping, so no demand number is produced at all.
+  const tiny = fp.pageSignalFrom(pageWith({ current: 7, weekly: 0, clicks: 7 }), NOW);
+  assert.ok(tiny);
+  assert.equal(tiny.passesGate, false);
+  assert.equal(tiny.demand, null, "a gated-out feed must produce NO demand, not a low one");
+  assert.equal(tiny.intent, null, "under the sample floor a click-rate is an artefact, not a measurement");
+  assert.equal(tiny.readiness, 100, "somebody did reach the page, which is what readiness means");
+  assert.match(tiny.why, /under the gate of 20/);
+
+  // NOTHING AT ALL IS NOT AN OBSERVATION. A row of zeroes would put a page
+  // nobody has ever visited into the evidence for a brief.
+  assert.equal(fp.pageSignalFrom(pageWith({ current: 0, weekly: 0 }), NOW), null);
+  assert.equal(fp.pageSignalFrom({ brandId: "b", slug: "", daily: {} }, NOW), null);
+
+  // Exactly at the rate floor, which is where a copied threshold drifts.
+  const atFloor = fp.pageSignalFrom(pageWith({ current: fp.MIN_VIEWS_FOR_RATE, weekly: 7, clicks: 0 }), NOW);
+  assert.notEqual(atFloor.intent, null, `${fp.MIN_VIEWS_FOR_RATE} views is the floor, inclusive`);
+  assert.equal(atFloor.intent, 0, "measured zero clicks IS a measurement of zero intent");
+});
+
+test("the baseline says how many prior weeks had any traffic at all", () => {
+  // "against 5 prior weeks" reads as five weeks of comparable traffic. A page
+  // launched on Monday has five prior weeks of NOTHING, which is a much weaker
+  // baseline wearing the same words.
+  const fresh = fp.pageSignalFrom(pageWith({ current: 210, weekly: 0 }), NOW);
+  assert.match(fresh.why, /of which 0 had any traffic at all/);
+  const established = fp.pageSignalFrom(pageWith({ current: 210, weekly: 14 }), NOW);
+  assert.doesNotMatch(established.why, /had any traffic at all/);
+});
+
+test("COMBINE DERIVES THE FAMILY FROM THE SOURCE — the defect that made it all pointless", () => {
+  // This took a `SourceFamily` for one driving run, and `familiesOf` maps
+  // SOURCE names. "first_party" is not a source name, so it was dropped as
+  // unmapped, while "news" resolved only because that one string happens to be
+  // both. A candidate backed by news AND the brand's own analytics therefore
+  // reported ONE family — the exact answer that makes the cap refuse
+  // everything, forever, for a reason no screen would ever have explained.
+  const c = fp.combine("t", [
+    { source: "news", evidenceId: "ev_n", fit: 72, timing: 80 },
+    { source: "website_analytics", evidenceId: "ev_f", demand: 100, intent: 60, readiness: 100 },
+  ]);
+  assert.deepEqual(c.families, ["first_party", "news"]);
+  assert.equal(c.independentFamilies, 2, "news and the brand's own analytics are two independent families");
+  assert.deepEqual(c.evidenceIds, ["ev_f", "ev_n"]);
+  assert.deepEqual(c.unmeasured, []);
+
+  // Our own records stay ONE family however many of them there are.
+  const ours = fp.combine("t", [
+    { source: "website_analytics", evidenceId: "e1", demand: 50 },
+    { source: "support_issues", evidenceId: "e2", demand: 60 },
+    { source: "sales_objections", evidenceId: "e3", demand: 70 },
+  ]);
+  assert.equal(ours.independentFamilies, 1, "three first-party sources are one view held three times");
+  assert.equal(ours.demand, 60, "a measured component is the mean of what measured it");
+
+  // An unmeasured component is NULL and NAMED, never a quiet zero.
+  const thin = fp.combine("t", [{ source: "news", evidenceId: "e", fit: 80 }]);
+  assert.equal(thin.demand, null);
+  assert.deepEqual(thin.unmeasured.sort(), ["demand", "intent", "readiness", "timing"]);
+  assert.match(thin.why, /Nothing measured/);
+  assert.match(thin.why, /thin evidence rather than a weak opportunity/);
+});
+
+test("TWO FAMILIES CLEAR THE BAND WHERE ONE CANNOT — the whole point", () => {
+  const observation = fp.pageSignalFrom(pageWith({ current: 210, weekly: 14, clicks: 28 }), NOW);
+
+  const both = fp.combine("cde", [
+    { source: "news", evidenceId: "ev_n", fit: 72, timing: 80 },
+    { source: observation.source, evidenceId: observation.evidenceId, demand: observation.demand, intent: observation.intent, readiness: observation.readiness },
+  ]);
+  const opportunity = ts.opportunityScore({
+    demand: both.demand ?? 0, fit: both.fit ?? 0, intent: both.intent ?? 0,
+    timing: both.timing ?? 0, readiness: both.readiness ?? 0,
+  });
+  const confidence = ts.confidenceScore({
+    sourceQuality: 75, independentFamilies: both.independentFamilies, coverage: 100, freshness: 100,
+  });
+  assert.ok(confidence > ts.SINGLE_FAMILY_CAP, `two families must be able to exceed ${ts.SINGLE_FAMILY_CAP}, got ${confidence}`);
+  assert.equal(ts.decide({ opportunity, confidence }).band, "brief");
+
+  // THE SAME NUMBERS, ONE FAMILY: refused. This is the comparison that proves
+  // the cap is doing the work rather than the scores.
+  const alone = fp.combine("cde", [
+    { source: observation.source, evidenceId: observation.evidenceId, demand: observation.demand, intent: observation.intent, readiness: observation.readiness, fit: 72, timing: 80 },
+  ]);
+  const confAlone = ts.confidenceScore({
+    sourceQuality: 90, independentFamilies: alone.independentFamilies, coverage: 100, freshness: 100,
+  });
+  assert.ok(confAlone <= ts.SINGLE_FAMILY_CAP);
+  assert.notEqual(ts.decide({ opportunity, confidence: confAlone }).band, "brief");
+});
+
+test("it reads the REAL store, with no key and no third party", async () => {
+  // Driven through `recordPageEvent`, which is what the owned page calls — not
+  // a fixture shaped like what it writes.
+  for (let i = 0; i < 25; i++) await pageAnalytics.recordPageEvent("b_live_fp", "real-slug", "view");
+  await pageAnalytics.recordPageEvent("b_live_fp", "real-slug", "cta_click");
+
+  const got = await fp.firstPartySignals("b_live_fp", Date.now());
+  assert.equal(got.length, 1, "events recorded through the real API must be observable");
+  assert.equal(got[0].topicId, "real-slug");
+  assert.equal(got[0].count, 25);
+  assert.equal(got[0].family, "first_party");
+  // 25 views in one week against five empty weeks clears the volume gate.
+  assert.equal(got[0].passesGate, true);
+
+  // A brand with nothing is an empty list, not a thrown error and not a row of
+  // zeroes.
+  assert.deepEqual(await fp.firstPartySignals("brand_with_no_pages"), []);
+  assert.deepEqual(await fp.firstPartySignals(""), []);
+  assert.deepEqual(await fp.firstPartySignals("   "), []);
+});
+
+test("THE SWEEP CARRIES THE SECOND FAMILY, and only claims it when it has it", async () => {
+  const extraction = {
+    brand: { name: "X", tagline: "common data environment for trades" },
+    products: { values: ["common data environment"] },
+    services: { values: ["document control"] },
+    hierarchy: [{ level: 1, text: "common data environment" }],
+    navigation: [{ label: "document control" }],
+    faqs: [{ q: "what is a common data environment" }],
+  };
+  const at = () => Date.parse("2026-11-10T12:00:00Z");
+
+  // NEWS ALONE: one family, capped, and the note says so.
+  const alone = await watch.watchTrends({ brandId: "b_sweep", business: "Construction software", extraction, now: at });
+  assert.ok(alone.findings.length > 0);
+  for (const f of alone.findings) {
+    assert.deepEqual(f.evidence.families, ["news"]);
+    assert.ok(f.evidence.confidence <= ts.SINGLE_FAMILY_CAP);
+    // The invariant is the CEILING, not one particular band: a stale item
+    // archives and a fresh one watches, and neither can ever reach a brief.
+    // Asserting "watch" exactly was a stronger claim than the design makes,
+    // and it failed on a three-week-old headline that is correctly archived.
+    assert.ok(["archive", "watch"].includes(f.evidence.ceiling), `one family reached ${f.evidence.ceiling}`);
+    assert.notEqual(f.evidence.ceiling, "brief");
+    assert.notEqual(f.evidence.ceiling, "auto_eligible");
+  }
+  assert.match(alone.note, /one source family \(news\)/);
+
+  // WITH THE BRAND'S OWN SIGNALS: two families, the cap stops binding, and the
+  // ceiling rises — the entire point of §2's release gate.
+  const corroborated = await watch.watchTrends({
+    brandId: "b_sweep", business: "Construction software", extraction, now: at,
+    firstPartySources: ["website_analytics"],
+  });
+  for (const f of corroborated.findings) {
+    assert.deepEqual(f.evidence.families, ["first_party", "news"]);
+    assert.equal(f.evidence.families.length, 2);
+  }
+  const best = corroborated.findings.find((f) => f.evidence.vetoes.length === 0);
+  assert.ok(best.evidence.confidence > ts.SINGLE_FAMILY_CAP, `two families must exceed the cap, got ${best.evidence.confidence}`);
+  assert.equal(best.evidence.ceiling, "brief", "with a second family the evidence can support a reviewable brief");
+
+  // AND THE CAVEAT STOPS CLAIMING ONE FAMILY. A caveat that is false is worse
+  // than none, because the next reader stops believing the true ones.
+  assert.doesNotMatch(corroborated.note, /one source family \(news\)/);
+  assert.match(corroborated.note, /this brand's own first-party signals/);
+
+  // TWENTY PAGES OF OUR OWN ARE STILL ONE FAMILY. The sweep passes names, so
+  // the family map decides — a caller cannot buy corroboration by volume.
+  const many = await watch.watchTrends({
+    brandId: "b_sweep", business: "Construction software", extraction, now: at,
+    firstPartySources: Array(20).fill("website_analytics"),
+  });
+  assert.deepEqual(many.findings[0].evidence.families, ["first_party", "news"]);
+  assert.equal(many.findings[0].evidence.confidence, corroborated.findings[0].evidence.confidence,
+    "twenty of our own pages are one family and must change nothing");
+});
+
+test("THE PROVIDER BASE URL IS AN ENVIRONMENT DECISION, AND A BAD ONE IS REFUSED", async () => {
+  // The API key travels in a header on every call, so a plain-http override
+  // anywhere but loopback would put a live credential on the wire in clear.
+  // A bad value is REFUSED and the default used — never silently honoured,
+  // because "we quietly ignored your setting" and "we quietly sent your key
+  // somewhere else" look identical from the outside until the second one has
+  // already happened.
+  const gw = await import("../src/backend/gateway.ts");
+  const before = process.env.ANTHROPIC_BASE_URL;
+  try {
+    for (const bad of [
+      "http://evil.example.com",          // plain http off loopback
+      "http://127.0.0.1.evil.com",        // a hostname that merely BEGINS like loopback
+      "ftp://127.0.0.1:3125",             // not http(s)
+      "//no-protocol.example.com",
+      "not a url at all",
+      "   ",
+      "",
+    ]) {
+      process.env.ANTHROPIC_BASE_URL = bad;
+      assert.equal(gw.anthropicBase(), gw.ANTHROPIC_DEFAULT_BASE, `"${bad}" must be refused, not honoured`);
+    }
+    // Honoured: https anywhere, and http ONLY on loopback.
+    process.env.ANTHROPIC_BASE_URL = "https://gateway.example.com/anthropic/";
+    assert.equal(gw.anthropicBase(), "https://gateway.example.com/anthropic",
+      "a trailing slash would produce //v1/messages, which some proxies route elsewhere entirely");
+    for (const host of ["127.0.0.1:3125", "localhost:3125"]) {
+      process.env.ANTHROPIC_BASE_URL = `http://${host}`;
+      assert.equal(gw.anthropicBase(), `http://${host}`, `${host} is loopback and is what a local stand-in needs`);
+    }
+    delete process.env.ANTHROPIC_BASE_URL;
+    assert.equal(gw.anthropicBase(), gw.ANTHROPIC_DEFAULT_BASE, "unset means the provider itself");
+  } finally {
+    if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = before;
+  }
+});
+
+test("and it can never be set from the admin screen", async () => {
+  // An admin screen that can redirect AI traffic is an admin screen that can
+  // exfiltrate every prompt the platform sends.
+  const keys = await import("../src/backend/platform-keys.ts");
+  const verdict = keys.storeable("ANTHROPIC_BASE_URL");
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.why, /exfiltrate every prompt/);
+  assert.equal(keys.settableKeys().some((k) => k.name === "ANTHROPIC_BASE_URL"), false);
+  // But it IS catalogued, or it would be invisible to the one diagnostic that
+  // answers "what does this deployment actually hold?".
+  const { ENV_CATALOGUE } = await import("../src/shared/env-catalogue.ts");
+  assert.ok(ENV_CATALOGUE.some((e) => e.name === "ANTHROPIC_BASE_URL"));
+});
+
+test("READINESS IS NOT CLAIMED FOR A PAGE NOBODY REACHED THIS WEEK", () => {
+  // A page with history but no visitors in the current window. Readiness means
+  // "this installation can actually act on the topic", and §5.4 makes a missing
+  // readiness a VETO on activation — so claiming it for a page nobody reached
+  // would quietly lift the one gate that stops work starting on a topic the
+  // brand has no live surface for.
+  const dormant = fp.pageSignalFrom(pageWith({ current: 0, weekly: 140 }), NOW);
+  assert.ok(dormant, "a page with history is still an observation");
+  assert.equal(dormant.count, 0);
+  assert.equal(dormant.readiness, null, "nobody reached it this week, so readiness is not established");
+  assert.match(dormant.why, /Readiness not established/);
+
+  // And a window that is a FIXED span, not a walk over whichever days have
+  // buckets: a quiet week must not come out shorter than a busy one.
+  const sparse = { daily: { [dayKey(3)]: { views: 4, ctaClicks: 0, leads: 0 } } };
+  assert.equal(fp.sumWindow(sparse, "views", NOW - 6 * DAY, 7), 4);
+  assert.equal(fp.sumWindow(sparse, "views", NOW - 6 * DAY, 2), 0, "a two-day window must not reach a day outside it");
+});
+
+test("THE KEYLESS CLAIM IS CHECKABLE, not a sentence somebody wrote", async () => {
+  // §2's release gate, stated in the observation model's own vocabulary and
+  // run through its own validator. A registry nothing registers in and a
+  // schema nothing emits are both just type definitions — this is the join.
+  const registry = await import("../src/shared/source-registry.ts");
+  const verdict = registry.validateSource(fp.FIRST_PARTY_REGISTRY);
+  assert.equal(verdict.ok, true, verdict.ok ? "" : JSON.stringify(verdict.errors));
+  assert.equal(registry.isKeyless(fp.FIRST_PARTY_REGISTRY), true,
+    "the whole point of this source is that it needs no credential");
+  assert.equal(fp.FIRST_PARTY_REGISTRY.access_path, "public_keyless");
+  assert.equal(fp.FIRST_PARTY_REGISTRY.source_family, "first_party");
+});
+
+test("a page signal becomes a §5 observation, and a re-read is a DUPLICATE", async () => {
+  const observation = await import("../src/shared/observation.ts");
+  const signal = fp.pageSignalFrom(pageWith({ current: 210, weekly: 14, clicks: 28 }), NOW);
+  const o = fp.toObservation(signal, { tenantScope: "b1", nowISO: "2026-11-10T12:00:00Z" });
+
+  const valid = observation.validateObservation(o);
+  assert.equal(valid.ok, true, valid.ok ? "" : JSON.stringify(valid.errors));
+
+  // COVERAGE IS 1 AND IT IS A MEASUREMENT. The counter runs on every request
+  // for the whole window, so a day with no bucket had no visitors — an
+  // observed zero, not a missing day. A sampled source could not say this.
+  assert.equal(o.coverage, 1);
+  assert.equal(o.metric, "page_views");
+  assert.equal(o.value, 210);
+
+  // §15: the same page over the same window is the SAME record, so re-running
+  // the sweep is a replay rather than a second piece of evidence. Without
+  // this, a cron that runs twice doubles a brand's apparent corroboration.
+  const again = fp.toObservation(fp.pageSignalFrom(pageWith({ current: 210, weekly: 14, clicks: 28 }), NOW), { tenantScope: "b1" });
+  assert.equal(observation.sourceVersionKey(again), observation.sourceVersionKey(o));
+  assert.equal(observation.classifyIngest(again, o.evidence_hash), "duplicate");
+
+  // TI-01: the same key with DIFFERENT counts is a conflict, never a silent
+  // overwrite — the week's numbers changing under us is something a person
+  // has to see.
+  const changed = fp.toObservation(fp.pageSignalFrom(pageWith({ current: 999, weekly: 14, clicks: 28 }), NOW), { tenantScope: "b1" });
+  assert.equal(observation.sourceVersionKey(changed), observation.sourceVersionKey(o), "same page, same window, same key");
+  assert.equal(observation.classifyIngest(changed, o.evidence_hash), "conflict");
+
+  // A different window is a different record, which is how a trend accumulates.
+  const lastWeek = fp.toObservation(fp.pageSignalFrom(pageWith({ current: 210, weekly: 14 }), NOW - 7 * DAY), { tenantScope: "b1" });
+  assert.notEqual(observation.sourceVersionKey(lastWeek), observation.sourceVersionKey(o));
+  // And another tenant's identical page is never the same record.
+  const otherTenant = fp.toObservation(signal, { tenantScope: "b2" });
+  assert.notEqual(observation.sourceVersionKey(otherTenant), observation.sourceVersionKey(o));
+});

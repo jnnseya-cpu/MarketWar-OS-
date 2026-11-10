@@ -130,6 +130,7 @@ export const NOT_STOREABLE: Record<string, string> = {
   GOOGLE_APPLICATION_CREDENTIALS_JSON: "An alternative way to give Firebase Admin its credentials, so it has the same bootstrap problem.",
   GCLOUD_PROJECT: "Set by the host when it applies, and read during Admin SDK initialisation.",
   GOOGLE_CLOUD_PROJECT: "Set by the host when it applies, and read during Admin SDK initialisation.",
+  ANTHROPIC_BASE_URL: "This decides WHERE every prompt this platform sends is delivered. An admin screen that can redirect AI traffic is an admin screen that can exfiltrate every prompt, so it is a deployment decision: set it in the hosting environment, or leave it unset and reach the provider directly.",
   FIELD_ENCRYPTION_MASTER_KEY: "This is the key that decrypts this store. Keeping it inside what it decrypts cannot work, and storing it unencrypted would expose every other key here. Set it in the hosting environment.",
 };
 
