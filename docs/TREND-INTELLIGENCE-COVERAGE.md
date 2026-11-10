@@ -31,7 +31,7 @@ Legend: ✅ exists and is live · 🔶 partial, named gap · 📦 genuinely abse
 | | |
 | --- | --- |
 | **Already built** | tenant isolation, approvals with an immutable state machine, asset versions and restore, an at-least-once publication ledger with receipt reconciliation, emergency freeze, append-only audit, A/B statistics that refuse to lie, experiment history, a native owned surface serving real pages at `/b/{brandId}/{slug}`, first-party page measurement, a multi-provider AI gateway with a deterministic fallback, plans, quotas and per-action metering, the **Growth Brief** contract + run-time resolution (`shared/growth-brief.ts`), the **opportunity + independent confidence** scoring (`shared/trend-score.ts`), and the **brief coordinator** that turns a scored decision into a validated brief (`shared/growth-brief-build.ts`) |
-| **Genuinely absent** | the **observation + evidence** model with provenance · a **keyless** signal source · the live **wiring** of the brief pipeline into `trend-watch`/`opportunity-radar` and the agents |
+| **Genuinely absent** | the **Firestore persistence** of the observation/evidence model (collections, composite keys, write-time dedupe, row rules) · a **keyless** signal source · the live **wiring** of the brief pipeline into `trend-watch`/`opportunity-radar` and the agents — the pure observation/evidence/source-registry MODEL now exists (`shared/observation.ts`, `shared/source-registry.ts`) |
 | **The one hard miss** | §2 is a release gate: the core workflow must run *"without asking the user or developer to obtain or enter a new third-party API key."* Today the trend engine's only live signal source is `search.ts`, which needs `SERPER_API_KEY` — a key that is currently **rejected 401/403** (see `STATE.md`). Everything else in the gate is already keyless |
 
 ---
@@ -86,10 +86,10 @@ path is buildable today with zero keys.
 
 | Worker | State | Where |
 | --- | --- | --- |
-| Source collector | 🔶 | per-source collectors exist; no normalised observation output |
+| Source collector | 🔶 | per-source collectors exist; the normalised observation + evidence + source-registry MODEL now exists (`shared/observation.ts`, `shared/source-registry.ts`) with the §15 key, TI-01 conflict detection, TI-04 syndication collapse and §5.1 canonicalisation — collectors still need to emit into it, and it needs Firestore persistence |
 | Trend reader | 🔶 | `trend-watch.ts` clusters and scores relevance; no trend class, expiry or missing-data report |
 | Opportunity strategist | 🔶 | `opportunity-radar.ts` ranks and explains; no veto model, no readiness input |
-| Brief coordinator | ✅ | `shared/growth-brief-build.ts` turns a scored `Decision` into a contract-valid `GrowthBrief` (§4); only a `brief`/`auto_eligible` band produces one, and the output is re-validated. Live wiring into the pipeline is the remaining step |
+| Brief coordinator | ✅ | `shared/growth-brief-build.ts` turns a scored `Decision` into a contract-valid `GrowthBrief` (§4); only a `brief`/`auto_eligible` band produces one, and the output is re-validated. Now wired via `backend/growth-brief-store.ts` and resolved at run time by the live-channel agents |
 | SEO and marketing agents | ✅ | they exist and are scoped; they consume no brief |
 | Review and execution service | ✅ | `approvals.ts`, `guard.ts` rate limits, `publish-preflight.ts` (eight pre-publish checks) |
 | Measurement worker | ✅ | `page-analytics.ts` + `experiments.ts` + `emergency-stop.ts` can pause |
@@ -236,15 +236,25 @@ approval**, because there is no brief to freeze it against.
    that file would itself reject. It sits exactly between the two layers above
    and the store below — the step that *constructs* the object the store then
    issues, reviews and resolves.
-3. 📦 **The observation and evidence model** (§5, §15). The denominator. Needs a
-   source registry with `access_path` and a unique source-version key. **Partly
-   closed:** corroboration now counts *families* rather than sources
-   (`SOURCE_FAMILY` over the radar's own twelve `SIGNAL_SOURCES`), and freshness
-   is measured from the publication date the provider sends. What is still
-   missing is the stored observation with a source-version key.
-4. 📦 **A keyless first-party source** (§2, §3 row 1). The release gate. Still
-   open: the only live signal source is `search.ts`, which needs
-   `SERPER_API_KEY`.
+3. ✅ **The observation and evidence model** (§5, §15). Built from both ends
+   and they meet: `src/shared/observation.ts` is the §5 schema with provenance,
+   the §15 source-version key, TI-01 conflict detection, TI-04 syndication
+   collapse, §5.1 canonicalisation and §17 freshness; `src/shared/source-registry.ts`
+   is the §3 registry with `access_path` as the keyless gate. The first real
+   PRODUCER of observations is `src/backend/first-party-signals.ts` below, which
+   registers as `public_keyless` and emits a measured count feed with each
+   component **null where nothing measured it**, never a quiet zero. What
+   remains is Firestore PERSISTENCE: `observations`/`evidence`/`source_registry`
+   collections in `privacy.ts`, composite-key row rules, and write-time
+   dedupe/conflict enforcement.
+4. ✅ **A keyless first-party source** (§2, §3 row 1) —
+   `src/backend/first-party-signals.ts`. **The release gate is closed.** The
+   brand's own owned pages already record views, CTA clicks and leads by day;
+   that is an independent `first_party` family needing no key, no third party
+   and no extra call. Until it existed the platform had exactly ONE live source
+   family, and one family is capped at 69 while the brief band needs 75 — so
+   nothing could ever clear the band, in principle, however strong a signal
+   looked.
 5. ✅ **Effective-brief resolution** (§16) — `src/backend/growth-brief-store.ts`,
    served over HTTP on `/api/opportunity-radar` (`effective`), consulting the
    platform's own approvals workflow and the emergency stop's publish lane.
@@ -262,6 +272,7 @@ that already existed:
 | --- | --- |
 | §3 source families | `SOURCE_FAMILY`, over the twelve `SIGNAL_SOURCES` the radar has published since §13. A test fails if a source is ever added without a family. |
 | §5.5 confidence + vetoes | Computed for every finding of the existing **weekly trend sweep** (`trend-watch.ts`). Its join/watch/reject recommendation is untouched — the evidence score sits beside it. |
+| §2 the keyless family | `first-party-signals.ts`, over the brand's own `page_stats` — the second independent family, read by the weekly cron. |
 | §5.5 freshness | Measured from the publication date `search.ts` now carries. It was dropping the provider's `date` and `source` on every news result, so freshness was unmeasurable. |
 | §5 activation decision | `assess` on the existing `/api/opportunity-radar`, beside the radar's own formula so the two are never confused. |
 | §6 the brief | Issued only when §5's band clears; stored per brand; listed and resolved on the same route. |
@@ -271,7 +282,7 @@ that already existed:
 | §14.5/§16 run-time adoption | `brief-preflight.ts`, on the **existing agent route** — an agent silently picks up the brief in force for its channel, exactly as that route already picks up live DNS, brand memory and a site crawl. No approved brief means baseline behaviour, silently. |
 | The surface | **None, by owner directive.** This machinery works invisibly: no panel, no chips, no screen to operate. A brief appears only as an item in the Collaboration & Approvals workflow that already existed. `tests/trend-intelligence.test.mjs` fails if any of it is drawn again. |
 
-`npm run drive:brief` exercises all of it over HTTP and then in a real browser — including that the screen shows **none** of it.
+`npm run drive:brief` exercises all of it over HTTP and then in a real browser — including that the screen shows **none** of it. `npm run drive:provider` stands up a server speaking the provider's own wire format and reads what the gateway actually sent, which is the only way to prove the brief leaves the building.
 
 ## What this document is not
 

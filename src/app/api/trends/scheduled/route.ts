@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listEnabled } from "@/backend/visibility-schedule";
 import { deepCrawl } from "@/backend/deep-crawl";
 import { watchTrends, saveWatch, listWatches, newSince } from "@/backend/trend-watch";
+import { firstPartySignals } from "@/backend/first-party-signals";
 import { brandMarket } from "@/backend/brand-market";
 import { walletIdForBrand } from "@/backend/brand-access";
 import { entitlementFor } from "@/backend/entitlement";
@@ -45,7 +46,7 @@ async function GETImpl(req: NextRequest) {
   }
 
   const schedules = await listEnabled();
-  const done: { brandId: string; signals: number; fresh: number; note: string }[] = [];
+  const done: { brandId: string; signals: number; fresh: number; firstParty: number; note: string }[] = [];
   const skipped: { brandId: string; why: string }[] = [];
 
   for (const s of schedules) {
@@ -84,16 +85,38 @@ async function GETImpl(req: NextRequest) {
       }
 
       const crawl = await deepCrawl(s.domain, { maxPages: 3, budgetMs: 20_000 });
+
+      // §2's RELEASE GATE, AND IT COSTS NOTHING.
+      //
+      // The brand's own owned pages already record views, CTA clicks and leads
+      // by day. That is a second INDEPENDENT source family, with no key, no
+      // third party and no extra call — and without a second family this whole
+      // sweep is capped at 69 confidence and can never clear the brief band,
+      // however strong a signal is. Read before the searches so a brand with
+      // its own traffic gets the benefit on this run rather than the next.
+      const observations = await firstPartySignals(s.brandId);
+
       // Searched in the brand's own region: a story breaking somewhere this
       // business does not sell is not an opportunity for it, however large.
       const result = await watchTrends({
         brandId: s.brandId, business: s.business, extraction: crawl.extraction,
         market: await brandMarket(s.brandId),
+        // NAMES, NOT A COUNT. The family map derives how many independent
+        // families these amount to, so the sweep cannot claim corroboration it
+        // has not got — and twenty pages of our own are still one family.
+        firstPartySources: observations.map((o) => o.source),
       });
       const previous = (await listWatches(s.brandId, 1))[0] ?? null;
       const fresh = newSince(result, previous);
       await saveWatch(result);
-      done.push({ brandId: s.brandId, signals: result.findings.length, fresh: fresh.length, note: result.note });
+      done.push({
+        brandId: s.brandId, signals: result.findings.length, fresh: fresh.length,
+        // Reported so a run says whether the brand had a second family at all.
+        // A sweep that silently had one family and a sweep that silently had
+        // two produce very different numbers for the same news.
+        firstParty: observations.length,
+        note: result.note,
+      });
     } catch (e) {
       skipped.push({ brandId: s.brandId, why: e instanceof Error ? e.message : "unknown error" });
     }

@@ -1,7 +1,7 @@
 # Every key this platform reads, and the order to add them in
 
-**129 environment variables.** 95 of them can be typed into the Admin Control
-Centre (`/dashboard/admin` → API keys); **34 cannot** and must go in Vercel →
+**130 environment variables.** 95 of them can be typed into the Admin Control
+Centre (`/dashboard/admin` → API keys); **35 cannot** and must go in Vercel →
 Settings → Environment Variables, for reasons given below.
 
 Nothing here is a guess. Every name, every "what it unlocks" and every "where to
@@ -195,7 +195,7 @@ price re-derive from a real bill.
 
 ---
 
-## The 34 that cannot live in the admin screen, and why
+## The 35 that cannot live in the admin screen, and why
 
 A screen that accepts a key it cannot use is worse than one that refuses it, so
 each of these is refused there with its reason.
@@ -217,6 +217,14 @@ expose every other key there.
 browser bundle when the site is *built*, so a value saved now cannot change a
 string compiled last week. Accepting one would be a reported success that never
 happened.
+
+**Where AI traffic goes (1).** `ANTHROPIC_BASE_URL` points the gateway at an
+Anthropic-compatible proxy instead of the provider. Every prompt this platform
+sends would travel to whatever it names, so it is a deployment decision and not
+an in-product setting — an admin screen that could redirect AI traffic is an
+admin screen that could exfiltrate every prompt. It must be `https` (plain
+`http` is accepted only on `127.0.0.1`, for a local stand-in used in testing);
+anything else is refused and the provider is used.
 
 ---
 

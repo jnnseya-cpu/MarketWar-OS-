@@ -237,12 +237,54 @@ const REASONING_HEADROOM = 1_500;
 // ---------------------------------------------------------------- Anthropic
 // Claude Messages API. Adaptive thinking is set explicitly (on Opus-tier
 // models omitting `thinking` runs without thinking).
+/** Where the Messages API lives when nothing says otherwise. */
+export const ANTHROPIC_DEFAULT_BASE = "https://api.anthropic.com";
+
+/**
+ * The provider's base URL, overridable ONLY from the environment.
+ *
+ * WHY THIS EXISTS. Two real needs, and they are the same need:
+ *
+ *   1. An Anthropic-compatible gateway or proxy in front of the provider is an
+ *      ordinary production arrangement, and without this the platform cannot
+ *      be pointed at one.
+ *   2. NOTHING COULD EVER VERIFY THAT A PROMPT LEAVES THIS BUILDING INTACT.
+ *      Every pre-flight on the agent route — live DNS, brand memory, the site
+ *      crawl, the approved growth brief — is gathered and handed to the model,
+ *      and the only evidence any of it arrives was a unit test of the function
+ *      that assembles the string. "The brief is gathered" and "the provider
+ *      receives the brief" were two different claims with a hard-coded URL
+ *      between them. With this, a stand-in that speaks the wire format can be
+ *      stood up on loopback and the actual request body read.
+ *
+ * THE TWO RULES THAT MAKE IT SAFE, and they are not negotiable:
+ *
+ *   • ENVIRONMENT ONLY. It is never read from a request, a body, a header or a
+ *     stored document. A redirect of provider traffic is a deployment
+ *     decision, not something any caller may influence.
+ *   • HTTPS, EXCEPT ON LOOPBACK. The API key travels in a header on every
+ *     call, so a plain-http override anywhere but 127.0.0.1/localhost would put
+ *     a live credential on the wire in clear. A bad value is REFUSED and the
+ *     default is used — never silently honoured.
+ */
+export function anthropicBase(): string {
+  const raw = (process.env.ANTHROPIC_BASE_URL || "").trim();
+  if (!raw) return ANTHROPIC_DEFAULT_BASE;
+  let url: URL;
+  try { url = new URL(raw); } catch { return ANTHROPIC_DEFAULT_BASE; }
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) return ANTHROPIC_DEFAULT_BASE;
+  // Trailing slashes would produce `//v1/messages`, which some proxies route
+  // somewhere entirely different from the path that was meant.
+  return url.origin + url.pathname.replace(/\/+$/, "");
+}
+
 const anthropic: Adapter = {
   id: "anthropic",
   model: () => process.env.ANTHROPIC_MODEL || "claude-opus-4-8",
   configured: () => Boolean(anthropicKey()),
   async complete(req, deadline) {
-    const res = await fetchWithRetry("https://api.anthropic.com/v1/messages", {
+    const res = await fetchWithRetry(`${anthropicBase()}/v1/messages`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
