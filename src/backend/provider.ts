@@ -20,6 +20,34 @@ import type { AgentResult } from "@/shared/types";
  */
 export const AGENT_CACHE_TTL_MS = 15 * 60 * 1000;
 
+/**
+ * Everything the platform gathered, as the user prompt — EXPORTED so the one
+ * boundary every pre-flight depends on can actually be driven.
+ *
+ * This route gathers facts the agent would otherwise have to ask for: live DNS
+ * records, the brand's shared memory, a live crawl of the site, and the
+ * approved growth brief in force. Each is set as a key on `input` and reaches
+ * the model only because this function passes every key through. That is a
+ * boundary, and it was inline and untestable — so "the brief is gathered" and
+ * "the brief reaches the model" were two different claims with nothing
+ * connecting them. This repo has lost a value at exactly that kind of seam
+ * more times than any other defect.
+ *
+ * Empty values are dropped rather than sent as blanks: `- website: ` tells a
+ * model there is a website whose address is nothing, which is worse than
+ * silence.
+ */
+export function promptFromInput(input: Record<string, string>): string {
+  return [
+    "Business context:",
+    ...Object.entries(input)
+      .filter(([, v]) => v && String(v).trim().length > 0)
+      .map(([k, v]) => `- ${k}: ${v}`),
+    "",
+    "Execute your directive against this business now.",
+  ].join("\n");
+}
+
 // Runs an agent through the AI Gateway (Claude → OpenAI → Gemini with
 // automatic failover). With no provider keys configured the platform runs in
 // Demo Intelligence mode using the agent's deterministic simulated output,
@@ -41,14 +69,7 @@ export async function runAgent(
   }
 
   const generatedAt = new Date().toISOString();
-  const userPrompt = [
-    "Business context:",
-    ...Object.entries(input)
-      .filter(([, v]) => v && String(v).trim().length > 0)
-      .map(([k, v]) => `- ${k}: ${v}`),
-    "",
-    "Execute your directive against this business now.",
-  ].join("\n");
+  const userPrompt = promptFromInput(input);
 
   try {
     // NEVER PAY TWICE FOR THE SAME ANSWER — scoped to the brand, so nothing is

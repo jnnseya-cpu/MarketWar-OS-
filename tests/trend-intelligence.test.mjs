@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, existsSync } from "node:fs";
 
 // TREND INTELLIGENCE AI v2.3 — THE CONTRACT AND THE TWO SCORES.
 //
@@ -871,3 +872,176 @@ test("THE TENANT FILTER, applied where a test can actually reach it", () => {
   // would authorise a caller for a tenant and then show them nothing.
   assert.deepEqual(briefStore.onlyThisBrand(all, " tenant_a ").map((r) => r.brief.brief_id), ["g1", "g3"]);
 });
+
+// ===========================================================================
+// AND IT WORKS INVISIBLY.
+//
+// Owner directive: "nothing to be visible to users as it needs to work
+// invisible." So there is no panel, no chips and no screen to operate — the
+// brief is picked up on an agent run the way live DNS, brand memory and a site
+// crawl already are, and a run without one is exactly the run the route always
+// made (§14.5: no approved brief means host baseline behaviour).
+// ===========================================================================
+
+const preflight = await import("../src/backend/brief-preflight.ts");
+const provider = await import("../src/backend/provider.ts");
+
+test("EVERY GATHERED FACT REACHES THE MODEL — including the brief", () => {
+  // THE SEAM THIS REPO KEEPS LOSING VALUES AT. "The brief is gathered" and
+  // "the brief reaches the model" were two different claims with nothing
+  // connecting them until this function was pulled out of the call site.
+  const prompt = provider.promptFromInput({
+    business: "Evan Deli",
+    brandMemory: "what other agents learned",
+    liveSiteFacts: "what the crawl read",
+    liveDnsFacts: "what DNS said",
+    growthBrief: "AN APPROVED GROWTH BRIEF IS IN FORCE",
+  });
+  for (const key of ["business", "brandMemory", "liveSiteFacts", "liveDnsFacts", "growthBrief"]) {
+    assert.match(prompt, new RegExp(`- ${key}: `), `${key} was gathered and never reached the prompt`);
+  }
+  assert.match(prompt, /AN APPROVED GROWTH BRIEF IS IN FORCE/);
+
+  // An empty value is dropped, not sent as a blank: "- website: " tells a model
+  // there is a website whose address is nothing, which is worse than silence.
+  const sparse = provider.promptFromInput({ business: "X", website: "", growthBrief: "   " });
+  assert.match(sparse, /- business: X/);
+  assert.doesNotMatch(sparse, /- website:/);
+  assert.doesNotMatch(sparse, /- growthBrief:/);
+});
+
+test("the preamble states the brief as CONSTRAINTS, with prohibitions absolute", () => {
+  const p = preflight.briefPreamble(FIXTURE, "seo");
+  assert.match(p, /APPROVED GROWTH BRIEF IS IN FORCE/);
+  assert.match(p, /constraint, not a suggestion/);
+  assert.match(p, new RegExp(FIXTURE.topic_id));
+  assert.match(p, new RegExp(FIXTURE.audience));
+  assert.match(p, new RegExp(FIXTURE.cta_id));
+  assert.match(p, new RegExp(FIXTURE.expires_at));
+  // The load-bearing pair.
+  assert.match(p, /Make no factual claim about the product beyond these/);
+  assert.match(p, /MUST NOT SAY, under any phrasing or synonym/);
+  assert.match(p, /This is absolute/);
+
+  // A brief with NO approved claims is the stricter case, and must not read as
+  // the permissive one. "No claims approved" means say nothing factual — the
+  // opposite of "no restrictions listed".
+  const noClaims = preflight.briefPreamble({ ...FIXTURE, approved_claim_ids: [] }, "seo");
+  assert.match(noClaims, /No claims have been approved\. Make no factual claim about the product at all\./);
+
+  // No prohibitions is genuinely no line, rather than an empty one that reads
+  // as a list the model should try to fill in.
+  const noProhibitions = preflight.briefPreamble({ ...FIXTURE, prohibited_claims: [] }, "seo");
+  assert.doesNotMatch(noProhibitions, /MUST NOT SAY/);
+});
+
+test("an agent picks up the brief in force, or silently runs on baseline", async () => {
+  briefStore.__resetBriefs();
+  stop.__resetEmergencyStop();
+  const now = "2026-11-10T12:00:00Z";
+  const inWindow = "2026-11-11T10:00:00Z";
+  const brief = { ...FIXTURE, brief_id: "gb_agent", market: "CA", locale: "en-CA", allowed_channels: ["seo"] };
+
+  // BEFORE ANY BRIEF EXISTS: null, and nothing said about it.
+  assert.equal(await preflight.briefFor({ agentId: "content-factory", brandId: "b_agent", nowISO: inWindow }), null);
+
+  const issued = await briefStore.issueBrief({ brandId: "b_agent", brief, gate: { opportunity: 90, confidence: 90 }, issuedBy: "t", nowISO: now });
+  assert.equal(issued.ok, true);
+
+  // ISSUED BUT NOT APPROVED IS STILL BASELINE. Nothing unapproved may direct an
+  // agent, and the agent is told nothing at all rather than told to wait.
+  assert.equal(await preflight.briefFor({ agentId: "content-factory", brandId: "b_agent", nowISO: inWindow }), null);
+
+  await approvals.transition({ id: issued.stored.approvalId, action: "submit", actor: "t", nowISO: now });
+  await approvals.transition({ id: issued.stored.approvalId, action: "approve", actor: "t", nowISO: now });
+
+  const got = await preflight.briefFor({ agentId: "content-factory", brandId: "b_agent", nowISO: inWindow });
+  assert.ok(got, "an approved brief inside its window must be picked up");
+  assert.equal(got.channel, "seo");
+  assert.equal(got.brief.brief_id, "gb_agent");
+  assert.match(got.preamble, /APPROVED GROWTH BRIEF IS IN FORCE/);
+
+  // AN AGENT THIS BRIEF'S CHANNEL DOES NOT COVER gets nothing. `caption-engine`
+  // is organic_social and the brief allows only seo.
+  assert.equal(await preflight.briefFor({ agentId: "caption-engine", brandId: "b_agent", nowISO: inWindow }), null);
+
+  // AN UNMAPPED AGENT RESOLVES NOTHING, deliberately: applying publication
+  // constraints to an internal strategy document would have an agent refuse to
+  // mention a product because a brief for a different surface said not to.
+  assert.equal(await preflight.briefFor({ agentId: "business-diagnosis", brandId: "b_agent", nowISO: inWindow }), null);
+  assert.equal(preflight.AGENT_CHANNEL["business-diagnosis"], undefined);
+
+  // EXPIRED IS BASELINE.
+  assert.equal(await preflight.briefFor({ agentId: "content-factory", brandId: "b_agent", nowISO: "2027-01-01T00:00:00Z" }), null);
+  // ANOTHER TENANT'S BRIEF IS NOT THIS BRAND'S.
+  assert.equal(await preflight.briefFor({ agentId: "content-factory", brandId: "someone_else", nowISO: inWindow }), null);
+  // A MARKET MISMATCH IS BASELINE, not a brief applied to the wrong country.
+  assert.equal(await preflight.briefFor({ agentId: "content-factory", brandId: "b_agent", nowISO: inWindow, market: "GB" }), null);
+  // AND A FROZEN PUBLISH LANE SILENCES IT.
+  await stop.engage({ scope: "b_agent", lanes: ["publish"], reason: "incident", engagedBy: "ops", nowISO: now });
+  assert.equal(await preflight.briefFor({ agentId: "content-factory", brandId: "b_agent", nowISO: inWindow }), null);
+  await stop.release({ scope: "b_agent", releasedBy: "ops", note: "incident closed, publishing resumed", nowISO: now });
+  assert.ok(await preflight.briefFor({ agentId: "content-factory", brandId: "b_agent", nowISO: inWindow }));
+});
+
+test("the pre-flight NEVER throws — a missing brief is not a failed agent run", async () => {
+  // The caller is a pre-flight step inside a run the customer has already been
+  // charged for. An exception escaping here would turn "there is no brief
+  // today" into a failed call, which is the opposite of §14.5.
+  for (const bad of [
+    { agentId: "content-factory", brandId: "", nowISO: "2026-11-11T10:00:00Z" },
+    { agentId: "", brandId: "b", nowISO: "2026-11-11T10:00:00Z" },
+    { agentId: "content-factory", brandId: "b", nowISO: "not a date" },
+    { agentId: "content-factory", brandId: "   ", nowISO: "" },
+  ]) {
+    assert.equal(await preflight.briefFor(bad), null, `${JSON.stringify(bad)} must be silent, not fatal`);
+  }
+});
+
+test("NOTHING OF THIS IS DRAWN ON A SCREEN (owner directive)", () => {
+  // The machinery works invisibly. This is the guard that keeps it that way:
+  // the board carries the activation fields as DATA and must not render them,
+  // and no component may exist to display briefs.
+  const boardSrc = readFileSync(new URL("../src/components/OpportunityBoard.tsx", import.meta.url), "utf8");
+  // The type still declares them — carrying a value is not showing it.
+  assert.match(boardSrc, /confidence\?: number; band\?: string/);
+  // But nothing renders them. JSX interpolation of any of them is the thing
+  // being forbidden, so that is what is searched for.
+  for (const field of ["confidence", "band", "vetoes", "briefId"]) {
+    assert.doesNotMatch(boardSrc, new RegExp(`\\{\\s*(Math\\.round\\()?i\\.${field}`), `the board renders i.${field} — this machinery is meant to be invisible`);
+  }
+  assert.equal(existsSync(new URL("../src/components/GrowthBriefs.tsx", import.meta.url)), false, "the brief panel was withdrawn on explicit owner instruction and must not come back without one");
+  const discover = readFileSync(new URL("../src/app/dashboard/discover/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(discover, /GrowthBriefs/);
+});
+
+test("ONLY A RESOLUTION THAT AUTHORISES WORK IS PICKED UP", () => {
+  // This check used to be inline, and a mutation sweep proved it was being
+  // kept honest by an exception rather than by the code: replacing `ok` with
+  // `true` built a preamble from an undefined brief, threw, and the catch
+  // turned it back into the same null. Pure and driven, it is load-bearing.
+  const A = { ...FIXTURE, brief_id: "gb_a" };
+  const B = { ...FIXTURE, brief_id: "gb_b" };
+
+  // A refusal is skipped even when it is first.
+  assert.equal(firstOf([{ ok: false }, { ok: true, brief: B }]), B);
+  // The FIRST authorising one wins, not the last.
+  assert.equal(firstOf([{ ok: true, brief: A }, { ok: true, brief: B }]), A);
+  // Nothing authorising, nothing returned.
+  assert.equal(firstOf([{ ok: false }, { ok: false }]), null);
+  assert.equal(firstOf([]), null);
+  assert.equal(firstOf(null), null);
+
+  // A RESULT CARRYING ONE WITHOUT THE OTHER IS NOT ACTED ON. `ok` with no
+  // brief is the shape the mutant produced; a brief with ok:false is a refusal
+  // that happens to have a payload. Neither authorises anything.
+  assert.equal(firstOf([{ ok: true }]), null, "ok with no brief must not be picked up");
+  assert.equal(firstOf([{ ok: false, brief: A }]), null, "a refused result must not be picked up for carrying a brief");
+  // Truthiness is not the test: `ok` must be the boolean true.
+  assert.equal(firstOf([{ ok: 1, brief: A }]), null);
+  assert.equal(firstOf([{ ok: "yes", brief: A }]), null);
+  // And a hole in the list is survived rather than thrown on.
+  assert.equal(firstOf([null, undefined, { ok: true, brief: A }]), A);
+});
+
+function firstOf(xs) { return preflight.firstInForce(xs); }

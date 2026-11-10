@@ -74,6 +74,7 @@ for (const p of ["opportunity-radar", "approvals", "emergency-stop"]) {
   }).catch(() => {});
 }
 for (const p of ["/", "/dashboard/discover"]) await fetch(`${ORIGIN}${p}`).catch(() => {});
+await fetch(`${ORIGIN}/api/agents/business-diagnosis`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
 
 const BRAND = "drive_ti_brand";
 const post = async (body) => {
@@ -251,6 +252,35 @@ try {
     });
   }
 
+  say("\n§14.5 — the agent route is unchanged by the pre-flight, with a brief and without");
+  {
+    // THE RISK THIS CHECKS. The brief is picked up inside a paid agent run. If
+    // that pre-flight could throw, block, or change the route's answer when no
+    // brief exists, it would have turned an optional improvement into a new way
+    // for the platform to stop working — for every agent, on every run.
+    const callAgent = async (agentId, brandId) => {
+      const r = await fetch(`${ORIGIN}/api/agents/${agentId}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId, business: "Drive Co", website: "https://example.co.uk" }),
+      });
+      return { status: r.status, body: await r.json().catch(() => ({})) };
+    };
+
+    // An agent with NO channel mapping resolves no brief at all.
+    const unmapped = await callAgent("business-diagnosis", BRAND);
+    // One that IS mapped, for a brand that now holds briefs.
+    const mapped = await callAgent("content-factory", BRAND);
+
+    ok("a mapped agent answers exactly as an unmapped one does",
+      unmapped.status === mapped.status,
+      `${unmapped.status} vs ${mapped.status}: ${JSON.stringify(mapped.body).slice(0, 200)}`);
+    ok("and neither is a server error — the pre-flight never fails a run",
+      mapped.status < 500 || /not available on this deployment|no AI provider|unavailable/i.test(JSON.stringify(mapped.body)),
+      `${mapped.status} ${JSON.stringify(mapped.body).slice(0, 220)}`);
+    ok("a brand with no briefs at all is just as ordinary",
+      (await callAgent("content-factory", "brand_with_nothing")).status === mapped.status);
+  }
+
   say("\nThe screen itself, in a real browser");
   {
     // Playwright lives outside this project's node_modules in this environment.
@@ -291,9 +321,8 @@ try {
       // Not tidiness: in dev, compiling a route reloads the module graph, and
       // the browser navigating to `/` and the dashboard compiles several. A
       // brief issued before that navigation is genuinely gone by the time the
-      // panel asks for it — which looks exactly like a store that does not
-      // persist. Issuing here means nothing compiles in between, so what the
-      // panel shows is what the server was just told.
+      // page is asked about it — which looks exactly like a store that does
+      // not persist.
       const uiBrief = { ...BRIEF, brief_id: `${BRIEF_ID}_ui` };
       const issued = await page.evaluate(async ([brandId, brief]) => {
         const r = await fetch("/api/opportunity-radar", {
@@ -306,30 +335,21 @@ try {
       await page.reload({ waitUntil: "networkidle", timeout: 120_000 });
       await page.waitForTimeout(2000);
 
-      // SCOPED TO THE PANEL. A whole-document regex for "Collaboration &
-      // Approvals" passes on this page because that is a SIDEBAR NAV ITEM — an
-      // assertion written that way was green while the panel said nothing.
-      const panelText = () => page.evaluate(() => {
-        const h = [...document.querySelectorAll("h2")].find((e) => /Growth briefs/.test(e.textContent || ""));
-        return h ? (h.closest("div.card")?.innerText || "") : "";
-      });
-      const panel = await panelText();
-      ok("the brief panel renders on the page the board is on", panel.length > 0, (await page.evaluate(() => document.body.innerText)).slice(0, 200));
-      ok("the opportunity board still renders beside it", await page.evaluate(() => document.body.innerText.includes("Opportunity board")));
-      ok("the issued brief is listed", /tp_cde_adoption/.test(panel), panel.slice(0, 200));
+      // AND NOW THE POINT: WITH A BRIEF IN FORCE, THE SCREEN SAYS NOTHING.
+      //
+      // Owner directive — this machinery works invisibly. The earlier version
+      // of this driver asserted a panel rendered, a control responded and the
+      // server's refusal appeared on screen. All of that is withdrawn, so the
+      // assertions are inverted rather than deleted: a surface that must not
+      // exist needs a test that fails if it comes back.
+      const text = await page.evaluate(() => document.body.innerText);
+      ok("the dashboard still works and the board still renders", /Opportunity board/.test(text), text.slice(0, 200));
+      for (const trace of ["Growth briefs", "Is it in force?", "tp_cde_adoption", "confidence ", "capped at 69", "a veto is not a low score"]) {
+        ok(`nothing of the brief machinery is on screen: "${trace}"`, !text.includes(trace), text.slice(0, 200));
+      }
+      ok("and no element carries a brief id", !/br_drive_/.test(await page.content()));
+      ok("the screen raised no error of its own", errors.length === 0, errors.join(" | "));
 
-      const clicked = await page.evaluate(() => {
-        const b = [...document.querySelectorAll("button")].find((x) => /in force/i.test(x.textContent || ""));
-        if (!b) return false;
-        b.click();
-        return true;
-      });
-      ok("the 'Is it in force?' control exists and responds", clicked);
-      await page.waitForTimeout(2500);
-      const checked = await panelText();
-      ok("it answers per channel", /seo:/.test(checked) && /organic_social:/.test(checked), checked.slice(0, 300));
-      ok("in the SERVER's own words, not a paraphrase", /not approved/.test(checked) && /Collaboration & Approvals/.test(checked), checked.slice(0, 400));
-      ok("and the screen raised no error of its own", errors.length === 0, errors.join(" | "));
       await browser.close();
     }
   }

@@ -13073,3 +13073,116 @@ decision is refused by name even through that path.
   an article is a report *about* demand, not an observation *of* it; a calendar
   lowest because a known date is context). It is not derived from outcomes,
   and nothing here claims it is.
+
+---
+
+## 53. Invisible: no screen to operate, and the agent picks it up itself (§182, 2026-11-10)
+
+Owner: *"Everything attached must be embedded onto the whole existing platform
+not a separate one. But it nothing to be visible to users as it needs to work
+invisible."*
+
+§181 embedded the machinery and then put a panel on `/dashboard/discover` and
+activation chips on the opportunity board. Both are withdrawn. The capability is
+not: every module, route and refusal path stays exactly as it was, and the work
+now happens where nobody has to look at it.
+
+### What was withdrawn, under the explicit instruction the law requires
+
+The additive-only law permits removing a capability only on the owner's explicit
+instruction naming it. This is that instruction, and the removal is narrow:
+
+- `src/components/GrowthBriefs.tsx` — **deleted.** The lock recorded the removal
+  by name (`- GrowthBriefs.tsx`), which is the mechanism working: a removal
+  cannot pass silently, it has to be accepted in a diff somebody reads.
+- The confidence / band / veto / brief-id chips on `OpportunityBoard.tsx` —
+  **no longer rendered.** The fields stay on the item type and still travel to
+  the client, because an item's band and vetoes are what the activation gate
+  decided about it, and dropping them in transit would make the client's copy a
+  different record. **Carrying a value is not showing it.**
+
+No API, store, score, refusal, gate or test was removed. The whole surface is
+still reachable, and `drive:brief` still proves every path on it.
+
+### Where the work moved to
+
+**`src/backend/brief-preflight.ts`, on the agent route that already existed.**
+
+That route has done this for three other kinds of fact for a long time: it
+reads live DNS records, the brand's shared memory and a live crawl of the site,
+then hands them to the model as stated facts — because an agent that has to ASK
+for something the platform already holds is a dead end for the customer. The
+brief is the same shape of thing (the constraints this installation has already
+approved), so it travels the same way and through the same brand-access gate.
+
+Thirteen agents are mapped to a live channel. **The map is deliberately
+sparse:** an agent appears only when its output plainly lands on search or
+organic social. Everything absent resolves no brief and runs on baseline, which
+is the correct answer rather than a gap — guessing a channel for an agent that
+writes an internal strategy document would apply publication constraints to
+something that is never published, and the first symptom would be an agent
+refusing to mention a product because a brief for a different surface said not
+to.
+
+**§14.5 is the rule the file exists to honour**, verbatim: *"On timeout,
+disabled entitlement, missing capability or no approved brief, use host
+baseline behaviour."* So every path that cannot produce a brief returns null and
+the agent runs exactly as before. A brief is an upgrade to a run, never a
+precondition for one — the pre-flight sits inside a run the customer has already
+been charged for, and an exception escaping it would turn "there is no brief
+today" into a failed agent call.
+
+### A check that was being kept honest by a discarded exception
+
+The selection was `if (resolved.ok) return { brief: resolved.brief, … }`, and a
+mutation sweep showed that replacing the condition with `true` broke no test.
+**The reason is worse than the mutant.** A refusal carries no `brief`, so the
+mutated version built a preamble from `undefined`, threw a TypeError, and the
+`catch` turned it into the same `null` the correct code returns. The verdict
+check was doing nothing; an exception being swallowed was doing its job.
+
+That is this repo's second-oldest defect class — *a check that passes for a
+reason unrelated to what it tests* — and it is now `firstInForce`, pure and
+exported, requiring **both** `ok === true` and a `brief`. A result carrying one
+without the other authorises nothing, and `ok: 1` and `ok: "yes"` are refused
+because truthiness is not a verdict.
+
+### And the seam the whole thing depends on
+
+`promptFromInput` was inline in `provider.ts`. Every pre-flight on that route —
+DNS, memory, crawl, and now the brief — reaches the model **only** because that
+one function passes every key through, and nothing tested it. "The brief is
+gathered" and "the brief reaches the model" were two different claims with
+nothing connecting them. Extracted and driven; this repo has lost a value at
+exactly that kind of seam more times than at any other.
+
+### Verified
+
+**48 tests** and **44 of 47 mutants killed**. `npm run drive:brief` — **43
+proven, 0 broken**, including that the agent route answers identically with a
+brief in force and without, and that the screen shows **none** of it: the
+browser assertions were inverted rather than deleted, so a surface that must not
+exist now has a test that fails if it comes back.
+
+All 12 gates pass; 2,387 tests (2,368 pass, the same 12 failing only for want of
+DNS, 7 skipping loudly); build clean; `verify:drivers` 385 behaviours, 0 broken.
+
+### Gaps recorded
+
+- **Three mutants survive, all defence-in-depth guards no constructible input
+  reaches**, and they are named rather than hidden: the withdrawal-refusal
+  branch in `issueBrief` (unreachable now that `reopen` is legal from both
+  states it is called for, kept against a future narrowing of the state
+  machine); the pre-flight's `catch` (nothing available here makes the body
+  throw); and the Firestore `where` clause (no longer solely load-bearing
+  because `onlyThisBrand` filters again afterwards).
+- **The brief reaching the provider is proven at the seam, not end to end.**
+  There is no base-URL override on the gateway and no DNS in this container, so
+  no stand-in provider can be stood up. What is proven: the brief is selected
+  correctly, rendered into a preamble, and `promptFromInput` carries every key
+  it is given. What is not: a real provider receiving it.
+- **Nothing issues a brief on its own yet.** The weekly trend sweep is one
+  source family and is capped at 69, so it can never clear the band — which is
+  the design working, not a gap to paper over. Until a second independent
+  family exists, briefs are issued through the API, and the invisible path
+  consumes whatever is there.

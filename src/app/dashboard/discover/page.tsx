@@ -10,7 +10,6 @@ import { Loader2, Radar, Search, MapPin, TrendingUp } from "lucide-react";
 import AgentRunner from "@/components/AgentRunner";
 import { PageHeader, Pill, StatCard } from "@/components/ui";
 import OpportunityBoard from "@/components/OpportunityBoard";
-import GrowthBriefs from "@/components/GrowthBriefs";
 import { authedFetch } from "@/frontend/api-client";
 import GtmPlanView, { type GtmPlan } from "@/components/GtmPlanView";
 
@@ -66,12 +65,6 @@ export default function DiscoverPage() {
 
       {/* §95 — scoring had nowhere to put its result until this. */}
       <OpportunityBoard />
-
-      {/* Trend Intelligence §6/§16 — what is actually in force, asked per
-          channel. It sits here rather than on a page of its own because a brief
-          is the thing an opportunity becomes, and the two being a click apart
-          is how a score gets read as permission. */}
-      <GrowthBriefs />
 
       <div className="mb-6 card border-emerald-500/30 p-6">
         <div className="grid gap-4 sm:grid-cols-2">
