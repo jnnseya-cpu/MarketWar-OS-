@@ -248,7 +248,8 @@ approval**, because there is no brief to freeze it against.
 5. ✅ **Effective-brief resolution** (§16) — `src/backend/growth-brief-store.ts`,
    served over HTTP on `/api/opportunity-radar` (`effective`), consulting the
    platform's own approvals workflow and the emergency stop's publish lane.
-   Run-time adoption by two named agents is still outstanding.
+   Run-time adoption is wired: thirteen agents whose output lands on a live
+   channel resolve the brief in force before they run.
 6. 📦 **The typed action envelope** over the approval, version and ledger
    machinery that is already there.
 
@@ -267,9 +268,10 @@ that already existed:
 | §9/§18 approval | The platform's **existing** Collaboration & Approvals workflow. Re-issuing withdraws the sign-off, because the thing approved is no longer the thing that would happen. |
 | §14 channel freeze | The **existing** emergency stop's `publish` lane, refusing through the same `{ok:false, baseline:true, code}` shape as every other refusal. |
 | §19 audit | The **existing** `audit-log.ts`. |
-| The surface | The **existing** `/dashboard/discover`, under the opportunity board — because a brief is what an opportunity becomes, and the two being a click apart is how a score gets read as permission. |
+| §14.5/§16 run-time adoption | `brief-preflight.ts`, on the **existing agent route** — an agent silently picks up the brief in force for its channel, exactly as that route already picks up live DNS, brand memory and a site crawl. No approved brief means baseline behaviour, silently. |
+| The surface | **None, by owner directive.** This machinery works invisibly: no panel, no chips, no screen to operate. A brief appears only as an item in the Collaboration & Approvals workflow that already existed. `tests/trend-intelligence.test.mjs` fails if any of it is drawn again. |
 
-`npm run drive:brief` exercises all of it over HTTP and then in a real browser.
+`npm run drive:brief` exercises all of it over HTTP and then in a real browser — including that the screen shows **none** of it.
 
 ## What this document is not
 

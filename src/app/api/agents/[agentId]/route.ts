@@ -11,6 +11,7 @@ import { nextStepFrom } from "@/backend/next-step";
 import { deepCrawl } from "@/backend/deep-crawl";
 import { contextFor } from "@/backend/brand-memory";
 import { resolveBrandAccess } from "@/backend/brand-access";
+import { briefFor } from "@/backend/brief-preflight";
 
 // Denial-of-wallet defence: every AI call can spend real provider budget once
 // keys are live, so cap requests per caller. 240/min is generous for genuine
@@ -125,6 +126,28 @@ export async function POST(
         const ctx = await contextFor(memoryBrandId, agentId);
         // Nothing known yet is not worth a paragraph telling the model so.
         if (ctx.facts.length) input.brandMemory = ctx.preamble;
+
+        // THE APPROVED GROWTH BRIEF, PICKED UP SILENTLY (§16, §14.5).
+        //
+        // Same reasoning as the three pre-flights around it: the platform
+        // already holds the constraints this installation signed off, so the
+        // agent is handed them rather than left to invent a boundary or ask
+        // for one. Nobody operates this — there is no screen and no switch.
+        //
+        // The access check above is the gate for it too, which is why it sits
+        // inside this block: a brief is one brand's approved instructions and
+        // must never be read for a caller who has not proved they own that
+        // brand.
+        //
+        // NO BRIEF IS THE ORDINARY CASE and is silent. §14.5 says missing
+        // capability or no approved brief means baseline behaviour, so a run
+        // without one is exactly the run this route always made.
+        const inForce = await briefFor({
+          agentId, brandId: memoryBrandId, nowISO: new Date().toISOString(),
+          market: input.market || undefined,
+          locale: input.locale || undefined,
+        });
+        if (inForce) input.growthBrief = inForce.preamble;
       }
     } catch { /* the agent still runs; it just starts from less */ }
   }

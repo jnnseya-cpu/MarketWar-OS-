@@ -23,8 +23,14 @@ import { BOARD_COLUMNS, COLUMN_LABEL, allowedFrom, type Column } from "@/shared/
 
 type Item = {
   id: string; topic: string; opportunityScore?: number; column: Column; daysInColumn: number;
-  // Trend Intelligence §5. Optional, and the difference matters on screen:
-  // absent means NOT ASSESSED, which is not the same as assessed and low.
+  // Trend Intelligence §5 travels WITH the item and is deliberately NOT drawn.
+  //
+  // Owner directive: the trend-intelligence machinery works invisibly. These
+  // fields are carried so the board's data stays complete — an item's band and
+  // vetoes are what the activation gate decided about it, and dropping them on
+  // the way to the client would make the client's copy a different record —
+  // but nothing here renders them, and nothing should start to without that
+  // directive changing. Carrying a value is not showing it.
   confidence?: number; band?: string; vetoes?: string[]; briefId?: string;
 };
 type View = { columns: { column: Column; label: string; items: Item[] }[]; stalled: Item[]; headline: string };
@@ -149,46 +155,6 @@ export default function OpportunityBoard() {
                           {typeof i.opportunityScore === "number" && <> · scored {i.opportunityScore}/100 by the radar</>}
                         </p>
 
-                        {/* THE ACTIVATION SIDE, and the distinction the numbers
-                            alone cannot make. A radar score of 92 beside
-                            nothing else reads as permission; it is not. What
-                            decides whether anything may change is the
-                            confidence in the EVIDENCE and whether anything is
-                            vetoed — so when an item carries those, they are
-                            shown next to the score rather than a screen away.
-
-                            An item with no confidence shows NOTHING here. A "0"
-                            for "nobody assessed it" is read as "assessed, and
-                            worthless", which is a different and wrong claim. */}
-                        {typeof i.confidence === "number" && (
-                          <p className="mt-1 text-[10px]">
-                            <span className={i.confidence >= 75 ? "text-emerald-300" : i.confidence >= 55 ? "text-amber-300" : "text-slate-500"}>
-                              confidence {Math.round(i.confidence)}/100
-                            </span>
-                            {i.band && (
-                              <span className="text-slate-500">
-                                {" · "}
-                                {i.band === "auto_eligible" ? "may act automatically"
-                                  : i.band === "brief" ? "can become a reviewable brief"
-                                  : i.band === "watch" ? "watch or draft internally"
-                                  : "archived"}
-                              </span>
-                            )}
-                            {i.confidence <= 69 && (
-                              <span className="block text-slate-600">
-                                One source family caps confidence at 69, so no live change on this alone.
-                              </span>
-                            )}
-                          </p>
-                        )}
-                        {i.vetoes && i.vetoes.length > 0 && (
-                          <p className="mt-1 text-[10px] text-rose-300">
-                            held: {i.vetoes.join(", ")} — a veto is not a low score, so no score clears it
-                          </p>
-                        )}
-                        {i.briefId && (
-                          <p className="mt-1 text-[10px] text-emerald-300/80">brief {i.briefId} issued</p>
-                        )}
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           {allowedFrom(i.column).map((to) => (
                             <button
