@@ -157,6 +157,42 @@ try {
     const held = await post({ action: "issue-brief", brandId: BRAND, brief: BRIEF, gate: { opportunity: 99, confidence: 99, vetoes: ["restricted_topic"] } });
     ok("a veto refuses the issue whatever the scores", held.status === 422 && held.body.code === "vetoed", `${held.status} ${held.body.code}`);
 
+    // §4's COORDINATOR, reached over HTTP: coordinates in, a contract-valid
+    // brief out, with the SCORES TAKEN FROM THE DECISION rather than a second
+    // copy of them. Without this path the coordinator has no importer at all,
+    // and a caller must hand-assemble 22 fields including both scores — which
+    // is exactly where a brief's numbers and its band drift apart.
+    const fromCoords = await post({
+      action: "issue-brief", brandId: BRAND,
+      gate: { opportunity: 88.5, confidence: 86.2 },
+      coordinates: {
+        brief_id: `${BRIEF_ID}_coord`, brief_version: 1, tenant_id: "t_drive", platform_id: "mw_os",
+        topic_id: "tp_from_coords", market: "GB", locale: "en-GB",
+        audience: "UK main contractors", intent: "commercial",
+        objective: "Built from a scored decision", cta_id: "cta_book_demo", experiment_id: "ex_2",
+        evidence_ids: ["ev_1", "ev_2"], approved_claim_ids: ["cl_iso19650"],
+        allowed_channels: ["seo"], prohibited_claims: ["guaranteed"], policy_version: 3,
+        valid_from: new Date(now - 60_000).toISOString(),
+      },
+    });
+    ok("a brief can be BUILT from a scored decision and issued in one call", fromCoords.status === 200, `${fromCoords.status} ${JSON.stringify(fromCoords.body).slice(0, 200)}`);
+    ok("and its scores come from the decision, not a re-passed copy",
+      fromCoords.body.brief?.opportunity_score === 88.5 && fromCoords.body.brief?.confidence === 86.2,
+      `${fromCoords.body.brief?.opportunity_score} / ${fromCoords.body.brief?.confidence}`);
+
+    const coordLow = await post({
+      action: "issue-brief", brandId: BRAND,
+      gate: { opportunity: 60, confidence: 60 },
+      coordinates: {
+        brief_id: `${BRIEF_ID}_low`, brief_version: 1, tenant_id: "t_drive", platform_id: "mw_os",
+        topic_id: "tp_low", market: "GB", locale: "en-GB", audience: "a", intent: "i",
+        objective: "o", cta_id: "c", experiment_id: "e", evidence_ids: ["ev_1"],
+        approved_claim_ids: ["cl_1"], allowed_channels: ["seo"], prohibited_claims: [], policy_version: 3,
+        valid_from: new Date(now).toISOString(),
+      },
+    });
+    ok("a watch-band decision never becomes a brief, even by this route", coordLow.status === 400 && /does not authorise a brief/.test(JSON.stringify(coordLow.body)), `${coordLow.status} ${JSON.stringify(coordLow.body).slice(0, 180)}`);
+
     const good = await post({ action: "issue-brief", brandId: BRAND, brief: BRIEF, gate: { opportunity: 86.25, confidence: 83.5 } });
     ok("a candidate that clears the band is issued", good.status === 200 && good.body.brief?.brief_id === BRIEF_ID, `${good.status} ${JSON.stringify(good.body).slice(0, 160)}`);
     ok("into the platform's OWN approvals workflow", typeof good.body.approvalId === "string" && good.body.approvalId.startsWith("ap_"), good.body.approvalId);

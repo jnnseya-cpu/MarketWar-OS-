@@ -13017,7 +13017,7 @@ bundle needs no eval and the header is guarded on `NODE_ENV`.
 
 ### Verified
 
-**42 tests** (16 new) and **34 of 36 mutants killed**. The two survivors are
+**42 tests** (16 new) and **34 of 36 mutants killed**, plus the second session's 9. The two survivors are
 named rather than hidden: the withdrawal-refusal guard is currently unreachable
 (`reopen` is legal from both states it is called for) and is kept as defence
 against a future narrowing of the state machine; and removing the Firestore
@@ -13026,14 +13026,34 @@ again afterwards — defence in depth on the tenant boundary, added precisely
 *because* the query branch cannot run without Firebase Admin, and the pure
 filter's own mutants all die.
 
-**`npm run drive:brief` — 35 proven, 0 broken, twice in a row**, booting its own
+**`npm run drive:brief` — 38 proven, 0 broken, twice in a row**, booting its own
 server, driving the whole surface over HTTP and then the real screen in a real
 browser. It is in `package.json`, and named in `verify-drivers.mjs` as excluded
 from the fast sweep for time, because a list that hides its own exclusions is
 how a gate becomes decorative.
 
-All 12 gates pass; 2,372 tests (2,353 pass, the same 12 failing only for want of
+All 12 gates pass; 2,381 tests (2,362 pass, the same 12 failing only for want of
 DNS, 7 skipping loudly); build clean; `verify:drivers` 385 behaviours, 0 broken.
+
+### A second session's coordinator, kept and wired rather than duplicated
+
+Mid-flight, another session pushed `src/shared/growth-brief-build.ts` to this
+branch — a pure §4 coordinator that turns a scored `Decision` into a
+contract-valid brief, with its own 9 tests. It is complementary: it *constructs*
+the object this work then issues, reviews, resolves and shows. Under the
+additive-only law it was kept, the branch was rebased onto it, and the coverage
+doc's build order now carries both readings rather than either overwriting the
+other.
+
+**It had the same problem this section exists to fix: no importer at all.** So
+it is wired in rather than left beside. `issue-brief` now takes either a
+finished `brief` or the `coordinates`, and in the second case builds one from
+the decision §5 just made — which means the brief's `opportunity_score` and
+`confidence` come from that decision rather than from a second copy a caller
+typed in. That is where a brief's numbers and its band drift apart, and the
+route no longer offers the opportunity. Driven: a coordinates call issues at
+88.5/86.2 with those exact figures on the stored brief, and a watch-band
+decision is refused by name even through that path.
 
 ### Gaps recorded
 

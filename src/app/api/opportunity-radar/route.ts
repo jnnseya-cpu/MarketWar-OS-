@@ -9,11 +9,12 @@ import {
 } from "@/backend/opportunity-radar";
 import { issueBrief, effectiveBrief, listBriefs } from "@/backend/growth-brief-store";
 import {
-  assess, familiesOf, OPPORTUNITY_WEIGHTS, CONFIDENCE_WEIGHTS, SINGLE_FAMILY_CAP,
+  assess, decide, familiesOf, OPPORTUNITY_WEIGHTS, CONFIDENCE_WEIGHTS, SINGLE_FAMILY_CAP,
   COUNT_GATE, MIN_COMPARABLE_PERIODS, VETOES, SOURCE_FAMILY, FAMILY_QUALITY,
   type Veto,
 } from "@/shared/trend-score";
 import { BRIEF_CHANNELS, LIVE_DRAFT_CHANNELS, BRIEF_REQUIRED } from "@/shared/growth-brief";
+import { buildGrowthBrief, BRIEF_TTL_MS, type BriefCoordinates } from "@/shared/growth-brief-build";
 
 // Content Opportunity Radar API (Organic Dominance §13). Merges demand signals
 // into a transparent, re-weightable Opportunity Score. Signals are scored only
@@ -129,8 +130,33 @@ export async function POST(req: NextRequest) {
           error: "issue-brief requires gate.opportunity and gate.confidence (0–100 each) — the scores this brief is claimed to have earned. They are checked against §5's table, not stored on trust.",
         }, { status: 400 });
       }
+
+      // FROM A SCORED DECISION STRAIGHT TO A BRIEF (§4's coordinator).
+      //
+      // The caller may hand over a finished brief object, or — far more usefully
+      // — the coordinates and let `buildGrowthBrief` assemble one from the
+      // decision §5 just made. Without this the coordinator has no importer, and
+      // a caller has to hand-assemble 22 fields including the two scores, which
+      // is precisely where the scores and the band drift apart.
+      let candidate: unknown = body.brief;
+      if (!candidate && body.coordinates && typeof body.coordinates === "object") {
+        const coords = body.coordinates as Partial<BriefCoordinates>;
+        const built = buildGrowthBrief(
+          decide({
+            opportunity: gate.opportunity, confidence: gate.confidence,
+            vetoes: Array.isArray(gate.vetoes) ? (gate.vetoes as string[]).filter((v): v is Veto => (VETOES as readonly string[]).includes(v)) : undefined,
+            autoActionOptIn: body.autoActionOptIn === true,
+          }),
+          { ...(coords as BriefCoordinates), valid_from: typeof coords.valid_from === "string" ? coords.valid_from : nowISO },
+        );
+        if (!built.ok) {
+          return NextResponse.json({ error: `The brief could not be built: ${built.errors.join("; ")}`, code: "invalid", errors: built.errors }, { status: 400 });
+        }
+        candidate = built.brief;
+      }
+
       const r = await issueBrief({
-        brandId, brief: body.brief,
+        brandId, brief: candidate,
         gate: {
           opportunity: gate.opportunity, confidence: gate.confidence,
           vetoes: Array.isArray(gate.vetoes) ? (gate.vetoes as string[]).filter((v): v is Veto => (VETOES as readonly string[]).includes(v)) : undefined,
@@ -252,6 +278,10 @@ export async function GET() {
       requiredFields: BRIEF_REQUIRED,
       channels: BRIEF_CHANNELS,
       liveChannels: LIVE_DRAFT_CHANNELS,
+      // §17's windows, so a caller does not have to guess how long a brief
+      // lasts: a persistent topic runs a week, breaking news a day.
+      validityWindowMs: BRIEF_TTL_MS,
+      issuedFrom: "Pass `brief` (a finished object) or `coordinates` (topic, market, audience, claims, channels, …) and the decision's own scores assemble one — the scores on the brief then come from the decision rather than a second copy of them.",
       runtimeRules: [
         "valid_from < expires_at, and valid_from <= now < expires_at. At the instant it expires it is expired.",
         "The channel asked for must be one the brief allows.",
