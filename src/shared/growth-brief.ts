@@ -287,7 +287,20 @@ export type EffectiveResult =
 export type EffectiveRefusal =
   | "invalid" | "not_yet_valid" | "expired" | "channel_not_allowed"
   | "market_mismatch" | "locale_mismatch" | "topic_mismatch" | "policy_mismatch"
-  | "unreadable_window";
+  | "unreadable_window"
+  /**
+   * §14's channel freeze. NOT decided here — this module has no clock it was
+   * not given and no store at all, so it cannot know a lane is halted. The
+   * code lives in this union so that the platform's existing emergency stop
+   * refuses through the SAME shape as every other refusal: a caller that
+   * handles `{ok:false, baseline:true, code}` already handles a freeze, which
+   * is the whole point of having one shape.
+   */
+  | "channel_frozen"
+  /** The brief was never approved, or its approval was invalidated by an edit (§18). */
+  | "not_approved"
+  /** No brief of that id belongs to this tenant. Never "not found", which leaks whether it exists. */
+  | "no_such_brief";
 
 /**
  * Resolve one approved, fresh brief for this channel — or say to fall back.

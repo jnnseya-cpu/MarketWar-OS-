@@ -69,7 +69,19 @@ export const TRANSITIONS: Record<ApprovalAction, { from: ApprovalState[]; to: Ap
   request_changes: { from: ["in_review"], to: "changes_requested" },
   reject: { from: ["in_review"], to: "rejected" },
   publish: { from: ["approved"], to: "published" },
-  reopen: { from: ["rejected", "published"], to: "draft" },
+  // REOPEN IS ALSO LEGAL FROM APPROVED, and it was not.
+  //
+  // From `approved` the only move was `publish`, so there was NO legal path
+  // back from a sign-off. That is fine while the thing approved cannot change —
+  // and it changes all the time: an asset is re-rendered, a growth brief is
+  // re-issued with an edited objective. The approval then still reads
+  // "approved" while describing content nobody signed off, which is the one
+  // thing an approval exists to prevent (Trend Intelligence §18: "edits,
+  // expiry or relevant policy changes invalidate approval").
+  //
+  // Nothing is removed by adding it: every move that was legal still is, and
+  // `reopen` already meant exactly this — send it back to draft.
+  reopen: { from: ["rejected", "published", "approved"], to: "draft" },
 };
 
 export function canApply(action: ApprovalAction, state: ApprovalState): boolean {

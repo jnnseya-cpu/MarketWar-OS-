@@ -12922,3 +12922,154 @@ a weight shifted, and the history gate dropped.
   envelope over the existing approval/version/ledger machinery. Steps 1 and 2 —
   the two modules above — were done first because every later step is wrong
   without them.
+
+---
+
+## 52. "Embedded onto the whole existing platform, not a separate one" (§181, 2026-11-10)
+
+Owner, on the Trend Intelligence work: *"Everything attached must be embedded
+onto the whole existing platform not a separate one."*
+
+§180 built two pure modules and proved them with 26 tests and 22 mutants. They
+were correct and **nothing on the platform consulted them**, which makes them a
+library the repo happened to contain. This is the wiring, and every piece of it
+landed on something that already existed.
+
+### What it was wired into
+
+| The spec's piece | Where it now lives |
+| --- | --- |
+| §3 source families | `SOURCE_FAMILY` over the **twelve `SIGNAL_SOURCES` the Content Opportunity Radar has published since §13** — one vocabulary of sources, with the grouping added rather than a second list. |
+| §5.5 confidence + vetoes | Every finding of the **existing weekly trend sweep** (`trend-watch.ts`). |
+| §5 activation decision | `assess` on the **existing** `/api/opportunity-radar`. |
+| §6 the brief | Issued only when §5's band clears; stored per brand; listed and resolved on that same route. |
+| §9/§18 approval | The **existing** Collaboration & Approvals workflow. |
+| §14 channel freeze | The **existing** emergency stop's `publish` lane. |
+| §19 audit | The **existing** `audit-log.ts`. |
+| The surface | The **existing** `/dashboard/discover`, under the opportunity board. |
+
+### Five defects, and four of them were in things that already existed
+
+**1. THE SEARCH BOUNDARY HAD BEEN DROPPING THE TWO FIELDS FRESHNESS NEEDS.**
+`normaliseSerper` maps the provider's news payload into the platform, and it
+kept the title, link and snippet while discarding `date` and `source` — the
+publication time and the publisher. Every consumer downstream needed them: a
+signal's freshness and how many distinct publishers carry it are the two
+measurable parts of whether it can be trusted, and without them the only honest
+answer was "unknown". **This repo's oldest defect, again: the value existed on
+one side of a boundary and never crossed it.** Demo mode now carries the same
+two fields, so the keyless path exercises the measured path rather than a
+shorter one that cannot fail.
+
+**2. THE FUNCTION THAT DROPS THEM WAS UNREACHABLE BY ANY TEST.**
+`normaliseSerper` was private and only runs with a live `SERPER_API_KEY`, which
+CI has not got and this container has not got. So the one function deciding
+which provider fields survive into the platform had never been exercised — which
+is exactly how it came to be dropping two of them silently. Exported and driven
+with a synthetic payload; a mutation sweep had proved the point by deleting the
+`date` line again and breaking no test.
+
+**3. THE APPROVAL STATE MACHINE HAD NO WAY BACK FROM A SIGN-OFF.** From
+`approved` the only legal action was `publish`. That is fine while the approved
+thing cannot change, and it changes constantly — an asset is re-rendered, a
+brief is re-issued with an edited objective — leaving the item reading
+"approved" while describing content nobody signed off. `reopen` is now legal
+from `approved` as well. Nothing was removed: every previously legal move is
+asserted, individually, still legal.
+
+**4. AND THE CODE THAT RELIED ON IT THREW THE REFUSAL AWAY.** The first version
+of `issueBrief` called `transition(...)` with an action that is illegal from
+`approved`, ignored the `{ok:false}` it got back every single time, and carried
+on. The brief then resolved at v2 under a sign-off granted for v1 — **§18 was a
+comment.** The refusal is read now, and if a sign-off cannot be withdrawn the
+edit is refused outright rather than leaving one standing. Found by driving it:
+no unit test would have seen it, because both sides were individually correct.
+
+**5. OUR OWN CSP STOPPED THE DEV SERVER HYDRATING — SO NO DASHBOARD SCREEN
+COULD EVER BE WATCHED TO WORK.** `script-src` forbade `unsafe-eval`; Next's dev
+runtime needs it. Every dashboard page was served, React never hydrated, no
+client effect ran, and the screen sat on its server HTML. The visible symptom
+was a sidebar reading "Add your first brand" for a brand sitting in
+localStorage. **This is the third time this file records the same fault** — a
+hardening header written once, and a feature added later that it silently
+forbids (the Meta pixel, then the camera Permissions-Policy). The consequence
+was worse than inconvenience: it is why every driver in this repo is API-level,
+and why this platform keeps shipping a correct engine behind six missing inches
+of screen (§144). **Production is unchanged byte for byte** — the production
+bundle needs no eval and the header is guarded on `NODE_ENV`.
+
+### The instrument was wrong before the code was, four times
+
+- **A whole-document regex for "Collaboration & Approvals" passed while the
+  panel said nothing** — that string is a *sidebar nav item*. Every browser
+  assertion is now scoped to the panel's own subtree.
+- **The emergency stop refused a four-character release note**, correctly, and
+  the test read its refusal as a defect in the brief resolver. The rule is now
+  asserted deliberately.
+- **A test asserted `expired` where `not_approved` is correct**: an unapproved
+  brief is unusable whatever its dates say, which is why approval is checked
+  before the window.
+- **The driver's first run showed a brief vanishing between requests.** Not a
+  persistence defect: in `next dev`, compiling a route reloads the module graph
+  and resets module-level state. The driver now warms every route it touches and
+  issues the UI's brief from inside the loaded page, with the reason written
+  down rather than left as a mystery loop.
+
+### Verified
+
+**42 tests** (16 new) and **34 of 36 mutants killed**, plus the second session's 9. The two survivors are
+named rather than hidden: the withdrawal-refusal guard is currently unreachable
+(`reopen` is legal from both states it is called for) and is kept as defence
+against a future narrowing of the state machine; and removing the Firestore
+`where` clause no longer changes behaviour because `onlyThisBrand` filters
+again afterwards — defence in depth on the tenant boundary, added precisely
+*because* the query branch cannot run without Firebase Admin, and the pure
+filter's own mutants all die.
+
+**`npm run drive:brief` — 38 proven, 0 broken, twice in a row**, booting its own
+server, driving the whole surface over HTTP and then the real screen in a real
+browser. It is in `package.json`, and named in `verify-drivers.mjs` as excluded
+from the fast sweep for time, because a list that hides its own exclusions is
+how a gate becomes decorative.
+
+All 12 gates pass; 2,381 tests (2,362 pass, the same 12 failing only for want of
+DNS, 7 skipping loudly); build clean; `verify:drivers` 385 behaviours, 0 broken.
+
+### A second session's coordinator, kept and wired rather than duplicated
+
+Mid-flight, another session pushed `src/shared/growth-brief-build.ts` to this
+branch — a pure §4 coordinator that turns a scored `Decision` into a
+contract-valid brief, with its own 9 tests. It is complementary: it *constructs*
+the object this work then issues, reviews, resolves and shows. Under the
+additive-only law it was kept, the branch was rebased onto it, and the coverage
+doc's build order now carries both readings rather than either overwriting the
+other.
+
+**It had the same problem this section exists to fix: no importer at all.** So
+it is wired in rather than left beside. `issue-brief` now takes either a
+finished `brief` or the `coordinates`, and in the second case builds one from
+the decision §5 just made — which means the brief's `opportunity_score` and
+`confidence` come from that decision rather than from a second copy a caller
+typed in. That is where a brief's numbers and its band drift apart, and the
+route no longer offers the opportunity. Driven: a coordinates call issues at
+88.5/86.2 with those exact figures on the stored brief, and a watch-band
+decision is refused by name even through that path.
+
+### Gaps recorded
+
+- **The brand-scoped half cannot be driven against `next start` here.** Brand
+  isolation deliberately fails closed in production without Firebase Admin — a
+  503 rather than serving a tenant's data without verified identities. That is
+  correct and was not weakened to make a driver pass; the driver boots a dev
+  server and says why.
+- **§2's keyless release gate is still open.** The only live signal source is
+  `search.ts`, which needs `SERPER_API_KEY`.
+- **Still not built:** the stored observation with a source-version key (§5,
+  §15), run-time adoption of the effective brief by two named agents, and the
+  typed action envelope.
+- **`FAMILY_QUALITY` is a judgement, not a measurement.** The spec asks for
+  "configured quality scores" and these are configured — in one place, with the
+  ordering reasoned (our own first-party records highest; news middling because
+  an article is a report *about* demand, not an observation *of* it; a calendar
+  lowest because a known date is context). It is not derived from outcomes,
+  and nothing here claims it is.

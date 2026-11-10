@@ -28,9 +28,30 @@ const MEDIA = "https://firebasestorage.googleapis.com https://storage.googleapis
 // browser PERMITS, not when it fires.
 const META = "https://connect.facebook.net";
 const META_IMG = "https://www.facebook.com";
+
+// 'unsafe-eval' IN DEVELOPMENT ONLY — and this is the THIRD time this file has
+// recorded the same fault.
+//
+// Next's dev runtime evaluates code at runtime, so this very header refused it:
+// the dev server served every dashboard page, React never hydrated, no client
+// effect ever ran, and the screen sat on its server HTML with every panel that
+// depends on client state missing. The visible symptom was a sidebar reading
+// "Add your first brand" for a brand that was sitting in localStorage.
+//
+// The consequence is worse than an inconvenience. It means NO dashboard screen
+// could be opened in a real browser locally and watched to work — which is
+// precisely how this platform has repeatedly shipped a correct engine behind
+// six missing inches of screen (§144: the Email Command Center printed
+// fabricated figures for its whole life because nobody could look at it).
+//
+// PRODUCTION IS UNCHANGED, byte for byte: the production bundle needs no eval,
+// and a build serves the identical header it served before. Guarded on
+// NODE_ENV, which `next dev` sets to "development" and `next start` never does.
+const DEV_EVAL = process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : "";
+
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' https://www.googletagmanager.com ${META}`,
+  `script-src 'self' 'unsafe-inline'${DEV_EVAL} https://www.googletagmanager.com ${META}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${GA} ${MEDIA} ${META_IMG}`,
   "font-src 'self' data:",

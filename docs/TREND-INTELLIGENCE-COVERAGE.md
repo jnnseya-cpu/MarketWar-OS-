@@ -30,8 +30,8 @@ Legend: ✅ exists and is live · 🔶 partial, named gap · 📦 genuinely abse
 
 | | |
 | --- | --- |
-| **Already built** | tenant isolation, approvals with an immutable state machine, asset versions and restore, an at-least-once publication ledger with receipt reconciliation, emergency freeze, append-only audit, A/B statistics that refuse to lie, experiment history, a native owned surface serving real pages at `/b/{brandId}/{slug}`, first-party page measurement, a multi-provider AI gateway with a deterministic fallback, plans, quotas and per-action metering |
-| **Genuinely absent** | the **Growth Brief** contract and its run-time resolution · the **observation + evidence** model with provenance · a **confidence** score separate from the opportunity score · a **keyless** signal source |
+| **Already built** | tenant isolation, approvals with an immutable state machine, asset versions and restore, an at-least-once publication ledger with receipt reconciliation, emergency freeze, append-only audit, A/B statistics that refuse to lie, experiment history, a native owned surface serving real pages at `/b/{brandId}/{slug}`, first-party page measurement, a multi-provider AI gateway with a deterministic fallback, plans, quotas and per-action metering, the **Growth Brief** contract + run-time resolution (`shared/growth-brief.ts`), the **opportunity + independent confidence** scoring (`shared/trend-score.ts`), and the **brief coordinator** that turns a scored decision into a validated brief (`shared/growth-brief-build.ts`) |
+| **Genuinely absent** | the **observation + evidence** model with provenance · a **keyless** signal source · the live **wiring** of the brief pipeline into `trend-watch`/`opportunity-radar` and the agents |
 | **The one hard miss** | §2 is a release gate: the core workflow must run *"without asking the user or developer to obtain or enter a new third-party API key."* Today the trend engine's only live signal source is `search.ts`, which needs `SERPER_API_KEY` — a key that is currently **rejected 401/403** (see `STATE.md`). Everything else in the gate is already keyless |
 
 ---
@@ -89,7 +89,7 @@ path is buildable today with zero keys.
 | Source collector | 🔶 | per-source collectors exist; no normalised observation output |
 | Trend reader | 🔶 | `trend-watch.ts` clusters and scores relevance; no trend class, expiry or missing-data report |
 | Opportunity strategist | 🔶 | `opportunity-radar.ts` ranks and explains; no veto model, no readiness input |
-| Brief coordinator | 📦 | **the keystone that does not exist** |
+| Brief coordinator | ✅ | `shared/growth-brief-build.ts` turns a scored `Decision` into a contract-valid `GrowthBrief` (§4); only a `brief`/`auto_eligible` band produces one, and the output is re-validated. Live wiring into the pipeline is the remaining step |
 | SEO and marketing agents | ✅ | they exist and are scoped; they consume no brief |
 | Review and execution service | ✅ | `approvals.ts`, `guard.ts` rate limits, `publish-preflight.ts` (eight pre-publish checks) |
 | Measurement worker | ✅ | `page-analytics.ts` + `experiments.ts` + `emergency-stop.ts` can pause |
@@ -133,9 +133,14 @@ syndicated story becoming an action.
 
 ## §6 · The contract connecting all agents — **the keystone**
 
-📦 **Absent, and it is the thing to build first.** Not one of the Growth Brief's
-22 required fields exists anywhere. `shared/render-brief.ts` is a *video render*
-brief and is unrelated.
+✅ **Built.** The 22-field closed contract and its runtime resolution live in
+`shared/growth-brief.ts` (`validateShape` + `resolveEffective`), the scoring in
+`shared/trend-score.ts`, and the §4 coordinator that assembles a validated brief
+from a scored decision in `shared/growth-brief-build.ts`. All three are pure and
+covered by `tests/trend-intelligence.test.mjs` and `tests/growth-brief-build.test.mjs`
+(TI-03, TI-05, the single-family cap, the decision table, the window rules).
+What remains is wiring them into the live pipeline and persistence.
+(`shared/render-brief.ts` is an unrelated *video render* brief.)
 
 Everything else in the spec hangs off it: the agents resolve it (§4), the
 actions reference its version (§6), approval binds to it (§18), the experiment
@@ -147,7 +152,7 @@ freezes against it (§10) and expiry is what makes a stale brief safe (TI-05).
 | --- | --- |
 | `POST /v1/observations:batch` | 📦 |
 | `GET /v1/opportunities` | 🔶 `/api/opportunity-radar` ranks but exposes no coverage, vetoes or evidence |
-| `GET /v1/briefs:effective` | 📦 |
+| `GET /v1/briefs:effective` | 🔶 resolution logic built (`growth-brief.ts` `resolveEffective`, with the 60s cache ceiling); the HTTP endpoint is not |
 | `POST /v1/actions` + `:approve` + `:execute` + `:rollback` | 🔶 the *semantics* are built (`approvals.ts`, `asset-versions.ts`, `publication-ledger.ts`); the typed action envelope is not |
 | `GET /v1/experiments/{id}` | ✅ `experiments.ts` + `experiment-history.ts` |
 
@@ -218,23 +223,53 @@ approval**, because there is no brief to freeze it against.
 
 ## The build order for what is actually missing
 
-1. **The Growth Brief contract** (§6 + Appendix A). Pure, exactly specified, and
-   everything else references it. Schema plus the runtime rules the spec is
-   careful to separate: *"A schema-valid object can still fail these checks."*
-2. **Opportunity score + independent confidence** (§5.4–5.5, §17). Also pure,
-   also exactly specified — including the reproducibility rules and the
-   single-family cap at 69 — and conformance scenario **TI-03** gives the
-   expected outputs to four significant figures.
-3. **The observation and evidence model** (§5, §15). The denominator. Needs a
-   source registry with `access_path` and a unique source-version key.
-4. **A keyless first-party source** (§2, §3 row 1). Closes the release gate
-   using six stores that already exist and need no key.
-5. **Effective-brief resolution** (§16) and run-time adoption by two agents.
-6. **The typed action envelope** over the approval, version and ledger
+1. ✅ **The Growth Brief contract** (§6 + Appendix A) — `src/shared/growth-brief.ts`.
+   Schema plus the runtime rules the spec is careful to separate: *"A
+   schema-valid object can still fail these checks."*
+2. ✅ **Opportunity score + independent confidence** (§5.4–5.5, §17) —
+   `src/shared/trend-score.ts`, reproducing the spec's own conformance numbers
+   (86.25, 83.5, and 69 for a single family).
+2b. ✅ **The §4 coordinator** — `src/shared/growth-brief-build.ts`. Turns a
+   scored `Decision` into a contract-valid brief, or a named refusal: only a
+   `brief`/`auto_eligible` band produces one, and the assembled object is
+   re-validated through `validateShape`, so a caller never receives a brief
+   that file would itself reject. It sits exactly between the two layers above
+   and the store below — the step that *constructs* the object the store then
+   issues, reviews and resolves.
+3. 📦 **The observation and evidence model** (§5, §15). The denominator. Needs a
+   source registry with `access_path` and a unique source-version key. **Partly
+   closed:** corroboration now counts *families* rather than sources
+   (`SOURCE_FAMILY` over the radar's own twelve `SIGNAL_SOURCES`), and freshness
+   is measured from the publication date the provider sends. What is still
+   missing is the stored observation with a source-version key.
+4. 📦 **A keyless first-party source** (§2, §3 row 1). The release gate. Still
+   open: the only live signal source is `search.ts`, which needs
+   `SERPER_API_KEY`.
+5. ✅ **Effective-brief resolution** (§16) — `src/backend/growth-brief-store.ts`,
+   served over HTTP on `/api/opportunity-radar` (`effective`), consulting the
+   platform's own approvals workflow and the emergency stop's publish lane.
+   Run-time adoption by two named agents is still outstanding.
+6. 📦 **The typed action envelope** over the approval, version and ledger
    machinery that is already there.
 
-Steps 1 and 2 are a few hundred lines of pure, testable code and are worth doing
-before anything else, because every later step is wrong without them.
+## Where it is embedded, and why there rather than beside
+
+This is not a second product bolted on. Every piece of it landed on something
+that already existed:
+
+| The spec's piece | Where it lives on this platform |
+| --- | --- |
+| §3 source families | `SOURCE_FAMILY`, over the twelve `SIGNAL_SOURCES` the radar has published since §13. A test fails if a source is ever added without a family. |
+| §5.5 confidence + vetoes | Computed for every finding of the existing **weekly trend sweep** (`trend-watch.ts`). Its join/watch/reject recommendation is untouched — the evidence score sits beside it. |
+| §5.5 freshness | Measured from the publication date `search.ts` now carries. It was dropping the provider's `date` and `source` on every news result, so freshness was unmeasurable. |
+| §5 activation decision | `assess` on the existing `/api/opportunity-radar`, beside the radar's own formula so the two are never confused. |
+| §6 the brief | Issued only when §5's band clears; stored per brand; listed and resolved on the same route. |
+| §9/§18 approval | The platform's **existing** Collaboration & Approvals workflow. Re-issuing withdraws the sign-off, because the thing approved is no longer the thing that would happen. |
+| §14 channel freeze | The **existing** emergency stop's `publish` lane, refusing through the same `{ok:false, baseline:true, code}` shape as every other refusal. |
+| §19 audit | The **existing** `audit-log.ts`. |
+| The surface | The **existing** `/dashboard/discover`, under the opportunity board — because a brief is what an opportunity becomes, and the two being a click apart is how a score gets read as permission. |
+
+`npm run drive:brief` exercises all of it over HTTP and then in a real browser.
 
 ## What this document is not
 

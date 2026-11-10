@@ -78,7 +78,17 @@ export function serperFailureReason(status: number): string {
   return `The search provider refused the request (${status}).`;
 }
 
-function normaliseSerper(data: Record<string, unknown>, type: SearchType): SearchResult[] {
+/**
+ * The provider's payload, mapped — EXPORTED so it can be driven without a key.
+ *
+ * It was private, which meant the only way to exercise it was to hold a live
+ * `SERPER_API_KEY`, and there is none in CI or in this container. So the one
+ * function that decides which provider fields survive into the platform was
+ * never tested, and it had been silently dropping the publisher and the date
+ * for as long as it has existed. A mutation sweep proved the point: deleting
+ * the `date` line again changed no test result, because no test could reach it.
+ */
+export function normaliseSerper(data: Record<string, unknown>, type: SearchType): SearchResult[] {
   const key = type === "search" ? "organic" : type === "news" ? "news" : type === "places" ? "places" : type === "shopping" ? "shopping" : "images";
   const arr = Array.isArray(data[key]) ? (data[key] as Record<string, unknown>[]) : [];
   return arr.slice(0, 10).map((r) => ({
@@ -89,6 +99,18 @@ function normaliseSerper(data: Record<string, unknown>, type: SearchType): Searc
       ...(r.rating != null ? { rating: Number(r.rating) } : {}),
       ...(r.price != null ? { price: String(r.price) } : {}),
       ...(r.phoneNumber != null ? { phone: String(r.phoneNumber) } : {}),
+      // WHEN IT WAS PUBLISHED AND BY WHOM, which this mapper used to drop.
+      //
+      // The provider returns `date` ("2 hours ago", "Mar 3, 2026") and `source`
+      // ("Reuters") on every news item, and both were discarded here while
+      // every consumer downstream needed them: a trend signal's FRESHNESS and
+      // how many distinct publishers carry it are the two measurable parts of
+      // whether it can be trusted. Without them the only honest answer was
+      // "unknown", so the trend sweep could score word overlap and nothing
+      // else. This repo's oldest defect, again: the value existed on one side
+      // of a boundary and never crossed it.
+      ...(r.date != null ? { date: String(r.date) } : {}),
+      ...(r.source != null ? { source: String(r.source) } : {}),
     },
   }));
 }
@@ -103,7 +125,17 @@ function demoResults(query: string, type: SearchType): SearchResult[] {
       return { title: `${pick(["Brixton", "Peckham", "Camden", "Hackney"], k)} ${query} #${i + 1}`, link: noWeb ? undefined : `https://example-${k % 97}.co.uk`, snippet: `${10 + (k % 90)} High St, London`, extra: { rating: Number((3 + (k % 20) / 10).toFixed(1)), phone: `+44 20 7${String(k % 1000).padStart(3, "0")} ${String(k % 10000).padStart(4, "0")}` } };
     }
     if (type === "shopping") return { title: `${query} — product ${i + 1}`, link: `https://shop-${k % 97}.co.uk`, extra: { price: `£${5 + (k % 60)}` } };
-    if (type === "news") return { title: `${query}: ${pick(["surges", "shifts", "under pressure", "new entrant"], k)} (${pick(["BBC", "Reuters", "Sky", "FT"], k)})`, snippet: `Industry signal relevant to ${query}.` };
+    if (type === "news") {
+      // The publisher and the age are the SAME fields the live mapper now
+      // carries, so demo mode exercises the path that measures freshness and
+      // publisher coverage rather than a shorter one that cannot fail.
+      const publisher = pick(["BBC", "Reuters", "Sky", "FT"], k);
+      return {
+        title: `${query}: ${pick(["surges", "shifts", "under pressure", "new entrant"], k)} (${publisher})`,
+        snippet: `Industry signal relevant to ${query}.`,
+        extra: { source: publisher, date: pick(["2 hours ago", "1 day ago", "5 days ago", "3 weeks ago"], k) },
+      };
+    }
     return { title: `${query} — result ${i + 1}`, link: `https://result-${k % 97}.co.uk`, snippet: `Structured demo result for "${query}". Live Google data activates with SERPER_API_KEY.` };
   });
 }
