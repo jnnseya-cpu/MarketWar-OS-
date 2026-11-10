@@ -61,20 +61,48 @@ export type BoardItem = {
   opportunityScore?: number;
   column: Column;
   history: BoardEvent[];
+
+  // THE ACTIVATION SIDE (Trend Intelligence §5), carried and never recomputed —
+  // same rule as `opportunityScore` above, for the same reason.
+  //
+  // A score on its own answers "how good does this look", which is not the
+  // question that decides whether anything may change. These three answer that
+  // one: how much the EVIDENCE is worth, which band it reaches, and what is
+  // refused outright. They are optional because the board predates them and an
+  // item adopted before they existed is still a real item — a missing
+  // confidence means "not assessed", which is different from "low", and the
+  // surface says so rather than printing a zero.
+  /** 0–100, computed independently of the score. Capped at 69 on one source family. */
+  confidence?: number;
+  /** archive | watch | brief | auto_eligible. */
+  band?: string;
+  /** Named refusals. A veto is not a low score. */
+  vetoes?: string[];
+  /** The growth brief issued from this item, once one has been. */
+  briefId?: string;
 };
 
 export type MoveResult =
   | { ok: false; error: string }
   | { ok: true; item: BoardItem };
 
-export function createItem(input: { id: string; topic: string; opportunityScore?: number; at: string; by?: string }): BoardItem {
-  return {
+export function createItem(input: {
+  id: string; topic: string; opportunityScore?: number; at: string; by?: string;
+  confidence?: number; band?: string; vetoes?: string[];
+}): BoardItem {
+  const item: BoardItem = {
     id: input.id,
     topic: input.topic,
     opportunityScore: input.opportunityScore,
     column: "spotted",
     history: [{ from: null, to: "spotted", at: input.at, by: input.by || "radar" }],
   };
+  // Only written when actually supplied. A zero stored for "nobody assessed it"
+  // reads on screen as "assessed, and it scored nothing" — the opposite thing.
+  if (typeof input.confidence === "number") item.confidence = input.confidence;
+  if (input.band) item.band = input.band;
+  if (input.vetoes?.length) item.vetoes = [...input.vetoes];
+  return item;
 }
 
 export function allowedFrom(column: Column): Column[] {

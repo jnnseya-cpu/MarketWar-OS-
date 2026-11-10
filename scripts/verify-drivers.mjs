@@ -39,6 +39,7 @@ const RUN = [
 const SLOW = {
   "drive:pages": "~100s — exercises all 23 feature pages",
   "drive:crawl": "~2min+ — boots a production server and crawls every route",
+  "drive:brief": "~2min — boots its own dev server and drives the brief surface over HTTP, then in a real browser",
 };
 
 /** Needs something this container has not got; each one says so itself now. */

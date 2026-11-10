@@ -49,6 +49,8 @@ async function persist(brandId: string, item: BoardItem): Promise<void> {
 
 export async function addToBoard(input: {
   brandId: string; id: string; topic: string; opportunityScore?: number; at: string; by?: string;
+  /** Trend Intelligence §5: carried through, never recomputed here. */
+  confidence?: number; band?: string; vetoes?: string[];
 }): Promise<{ ok: false; error: string } | { ok: true; item: BoardItem }> {
   const existing = (await listBoard(input.brandId)).find((i) => i.id === input.id);
   if (existing) return { ok: false, error: `"${existing.topic}" is already on the board, in ${existing.column.replace(/_/g, " ")}.` };

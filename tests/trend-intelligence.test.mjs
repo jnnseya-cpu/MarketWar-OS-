@@ -478,3 +478,396 @@ test("THIS IS NOT THE CONTENT OPPORTUNITY RADAR, and both still exist", async ()
   assert.match(doc, /CONFLICT: two opportunity scores/);
   assert.match(doc, /keep both/i);
 });
+
+// ===========================================================================
+// EMBEDDED INTO THE PLATFORM, not parked beside it.
+//
+// The contracts above are worth nothing until something on this platform
+// consults them. These cover the wiring: the twelve signal sources the radar
+// has always published, the weekly trend sweep, the search boundary that was
+// dropping the two fields freshness needs, the approvals workflow a brief is
+// reviewed in, and the emergency stop that freezes it.
+// ===========================================================================
+
+const radar = await import("../src/backend/opportunity-radar.ts");
+const watch = await import("../src/backend/trend-watch.ts");
+const briefStore = await import("../src/backend/growth-brief-store.ts");
+const approvals = await import("../src/backend/approvals.ts");
+const sharedApprovals = await import("../src/shared/approvals.ts");
+const board = await import("../src/shared/opportunity-board.ts");
+const stop = await import("../src/backend/emergency-stop.ts");
+const search = await import("../src/backend/search.ts");
+
+test("EVERY signal source the radar publishes has a declared family", () => {
+  // THE BINDING THAT STOPS THE TWO LISTS DRIFTING. An unmapped source would be
+  // silently ignored by `familiesOf`, so a thirteenth source added to the radar
+  // would quietly stop corroborating anything — or, on the generous reading
+  // somebody would reach for to "fix" it, start counting as its own family and
+  // inflate every confidence score on the platform.
+  for (const s of radar.SIGNAL_SOURCES) {
+    assert.ok(ts.SOURCE_FAMILY[s], `${s} is published by the radar and has no source family`);
+  }
+  // And the reverse: no family map entry that is not a real source.
+  for (const k of Object.keys(ts.SOURCE_FAMILY)) {
+    assert.ok((radar.SIGNAL_SOURCES).includes(k), `${k} has a family but is not a signal source`);
+  }
+  // Every family must have a configured quality, or `sourceQualityOf` silently
+  // scores it zero and the cause is invisible.
+  for (const fam of new Set(Object.values(ts.SOURCE_FAMILY))) {
+    assert.equal(typeof ts.FAMILY_QUALITY[fam], "number", `${fam} has no configured quality`);
+  }
+});
+
+test("corroboration counts FAMILIES, which is the whole point of the cap", () => {
+  // Our own records of our own customers are one view held three times.
+  const firstParty = ts.familiesOf(["support_issues", "sales_objections", "website_analytics"]);
+  assert.deepEqual(firstParty.families, ["first_party"]);
+  assert.equal(firstParty.independentFamilies, 1, "three first-party sources are not three families");
+
+  // A date that was knowable a year ago is not two observations either.
+  assert.equal(ts.familiesOf(["seasonal_events", "cultural_events"]).independentFamilies, 1);
+
+  // But a search engine and an assistant are genuinely different populations.
+  assert.equal(ts.familiesOf(["search_queries", "ai_prompts"]).independentFamilies, 2);
+
+  // AN UNMAPPED SOURCE IS NOT A FAMILY — the generous reading is the dangerous
+  // one, because anything able to name three strings would clear corroboration.
+  const fake = ts.familiesOf(["made_up_a", "made_up_b", "made_up_c"]);
+  assert.equal(fake.independentFamilies, 0);
+  assert.deepEqual(fake.unmapped, ["made_up_a", "made_up_b", "made_up_c"]);
+  assert.match(fake.why, /no family is declared/);
+
+  // Sorted and de-duplicated, so the count is reproducible across machines
+  // (§17's whole concern).
+  assert.deepEqual(ts.familiesOf(["reviews", "news", "reviews"]).families, ["news", "review"]);
+  assert.deepEqual(ts.familiesOf(null).families, []);
+  assert.deepEqual(ts.familiesOf([" ", ""]).families, []);
+});
+
+test("a date the provider sent is read; one it did not is NOT guessed at", () => {
+  const now = Date.parse("2026-11-10T12:00:00Z");
+  assert.equal(ts.ageHoursFrom("2 hours ago", now), 2);
+  assert.equal(ts.ageHoursFrom("1 day ago", now), 24);
+  assert.equal(ts.ageHoursFrom("3 weeks ago", now), 504);
+  assert.equal(ts.ageHoursFrom("45 minutes ago", now), 0.75);
+  assert.equal(ts.ageHoursFrom("yesterday", now), 24);
+  assert.equal(ts.ageHoursFrom("just now", now), 0);
+  assert.equal(ts.ageHoursFrom("2026-11-09T12:00:00Z", now), 24);
+
+  // THE IMPORTANT ONE. A parser that answers "0 hours" for text it did not
+  // understand reports every unreadable date as breaking news, which is the
+  // most expensive possible way to be wrong about freshness.
+  assert.equal(ts.ageHoursFrom("sometime last quarter", now), null);
+  assert.equal(ts.ageHoursFrom("", now), null);
+  assert.equal(ts.ageHoursFrom(undefined, now), null);
+  assert.equal(ts.ageHoursFrom(null, now), null);
+
+  // A publication date in the future is a bad record, not freshness.
+  assert.equal(ts.ageHoursFrom("2027-01-01T00:00:00Z", now), 0);
+});
+
+test("freshness tapers, and an unknown age scores zero rather than full marks", () => {
+  assert.equal(ts.freshnessFrom(0), 100);
+  assert.equal(ts.freshnessFrom(ts.FULLY_FRESH_HOURS), 100);
+  assert.equal(ts.freshnessFrom(ts.STALE_AFTER_HOURS), 0);
+  assert.equal(ts.freshnessFrom(ts.STALE_AFTER_HOURS + 1000), 0);
+  assert.equal(ts.freshnessFrom(null), 0, "an unreadable date must not score as fresh");
+  const mid = ts.freshnessFrom((ts.FULLY_FRESH_HOURS + ts.STALE_AFTER_HOURS) / 2);
+  assert.ok(mid > 49 && mid < 51, `midpoint should be ~50, got ${mid}`);
+  // Monotonic: older is never fresher.
+  for (let h = 0; h < ts.STALE_AFTER_HOURS; h += 37) {
+    assert.ok(ts.freshnessFrom(h) >= ts.freshnessFrom(h + 37), `freshness rose between ${h}h and ${h + 37}h`);
+  }
+});
+
+test("THE WEEKLY SWEEP IS ONE FAMILY, and now says so in the spec's units", () => {
+  const e = watch.evidenceFor({ rejected: false, relevanceKnown: true, coverage: 100, ageHours: 1 });
+  assert.deepEqual(e.families, ["news"]);
+  assert.ok(e.confidence <= ts.SINGLE_FAMILY_CAP, `one family must cap at ${ts.SINGLE_FAMILY_CAP}, got ${e.confidence}`);
+  // The ceiling is computed by asking the real decision table at a PERFECT
+  // opportunity score — so it is a statement about the evidence alone.
+  assert.equal(e.ceiling, "watch", "a single news family can never support a brief, however good the headline");
+  assert.match(e.why, /one source family|One family alone/i);
+
+  // The existing risk gate, named in the spec's vocabulary. Not re-judged.
+  assert.deepEqual(watch.evidenceFor({ rejected: true, relevanceKnown: true, coverage: 100, ageHours: 1 }).vetoes, ["restricted_topic"]);
+  // No crawl means no vocabulary, which IS the spec's readiness gap.
+  assert.deepEqual(watch.evidenceFor({ rejected: false, relevanceKnown: false, coverage: 100, ageHours: 1 }).vetoes, ["readiness_missing"]);
+
+  // ZERO FAMILIES IS NOT ONE FAMILY. The first version of this sentence told a
+  // reassuring story ("a single source family is capped at 69") about a
+  // candidate backed by nothing recognisable at all.
+  const none = watch.evidenceFor({ sources: ["nonsense"], rejected: false, relevanceKnown: true, coverage: 100, ageHours: 1 });
+  assert.equal(none.families.length, 0);
+  assert.match(none.why, /nothing here is backed by a source family/);
+  assert.doesNotMatch(none.why, /one source family is capped/);
+
+  // Four real families CAN reach a brief — so the cap is a cap and not a floor
+  // that nothing ever clears.
+  const many = watch.evidenceFor({
+    sources: ["news", "reviews", "search_queries", "support_issues"],
+    rejected: false, relevanceKnown: true, coverage: 100, ageHours: 1,
+  });
+  assert.ok(many.confidence > ts.SINGLE_FAMILY_CAP);
+  assert.equal(many.ceiling, "brief");
+});
+
+test("the search boundary carries the publisher and the date it used to drop", async () => {
+  // Demo mode, which is the path with no key — and it must exercise the SAME
+  // fields the live mapper carries, or the measured path is never driven here.
+  const news = await search.webSearch({ query: "common data environment", type: "news" });
+  assert.ok(news.results.length > 0);
+  for (const r of news.results) {
+    assert.equal(typeof r.extra?.source, "string", "a news result must carry its publisher");
+    assert.equal(typeof r.extra?.date, "string", "a news result must carry its date");
+    assert.notEqual(ts.ageHoursFrom(r.extra.date, Date.now()), null, `"${r.extra.date}" must be readable as an age`);
+  }
+  // Not every search type invents them.
+  const web = await search.webSearch({ query: "anything", type: "search" });
+  assert.equal(web.results[0]?.extra?.source, undefined, "a plain web result has no publisher to claim");
+});
+
+test("the sweep's existing recommendation is UNCHANGED — this is additive", async () => {
+  const extraction = {
+    brand: { name: "X", tagline: "common data environment for trades" },
+    products: { values: ["common data environment"] },
+    services: { values: ["document control"] },
+    hierarchy: [{ level: 1, text: "common data environment" }],
+    navigation: [{ label: "document control" }],
+    faqs: [{ q: "what is a common data environment" }],
+  };
+  const r = await watch.watchTrends({
+    brandId: "b_test", business: "Construction software", extraction,
+    now: () => Date.parse("2026-11-10T12:00:00Z"),
+  });
+  assert.ok(r.findings.length > 0);
+  for (const f of r.findings) {
+    // The old surface, intact.
+    assert.ok(["join", "watch", "reject"].includes(f.action));
+    assert.ok(f.relevance && typeof f.why === "string");
+    // The new surface, beside it.
+    assert.ok(f.evidence, "every finding carries its evidence");
+    assert.ok(f.evidence.confidence <= ts.SINGLE_FAMILY_CAP);
+    assert.equal(typeof f.ageHours === "number" || f.ageHours === null, true);
+  }
+  // A "join" is still a recommendation, and the note refuses to let it read as
+  // permission.
+  assert.match(r.note, /recommendations for a person to weigh/);
+  assert.match(r.note, new RegExp(String(ts.SINGLE_FAMILY_CAP)));
+});
+
+test("REOPEN IS NOW LEGAL FROM APPROVED, and every move that was legal still is", () => {
+  const T = sharedApprovals.TRANSITIONS;
+  // The addition.
+  assert.ok(sharedApprovals.canApply("reopen", "approved"), "an approved item must be able to go back when its content changes");
+  // Nothing removed, nothing re-pointed.
+  assert.deepEqual(T.submit, { from: ["draft", "changes_requested"], to: "in_review" });
+  assert.deepEqual(T.approve, { from: ["in_review"], to: "approved" });
+  assert.deepEqual(T.request_changes, { from: ["in_review"], to: "changes_requested" });
+  assert.deepEqual(T.reject, { from: ["in_review"], to: "rejected" });
+  assert.deepEqual(T.publish, { from: ["approved"], to: "published" });
+  assert.equal(T.reopen.to, "draft");
+  for (const s of ["rejected", "published"]) {
+    assert.ok(T.reopen.from.includes(s), `reopen must still be legal from ${s}`);
+  }
+  // Still illegal where it always was.
+  assert.equal(sharedApprovals.canApply("reopen", "draft"), false);
+  assert.equal(sharedApprovals.canApply("approve", "draft"), false);
+});
+
+test("a brief cannot be issued below the band, and the gate is asked not copied", async () => {
+  briefStore.__resetBriefs();
+  const now = "2026-11-10T12:00:00Z";
+  const base = { ...FIXTURE, brief_id: "gb_issue_1", valid_from: "2026-11-10T10:00:00Z", expires_at: "2026-11-17T10:00:00Z" };
+
+  const invalid = await briefStore.issueBrief({ brandId: "b1", brief: { ...base, injected: true }, gate: { opportunity: 99, confidence: 99 }, issuedBy: "t", nowISO: now });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.code, "invalid", "the CONTRACT is checked before the score — an object missing half its fields cannot be judged on its band");
+
+  const low = await briefStore.issueBrief({ brandId: "b1", brief: base, gate: { opportunity: 90, confidence: 69 }, issuedBy: "t", nowISO: now });
+  assert.equal(low.ok, false);
+  assert.equal(low.code, "below_band");
+  assert.match(low.error, /second independent family/, "the remedy must name the missing family, not a better headline");
+
+  const veto = await briefStore.issueBrief({ brandId: "b1", brief: base, gate: { opportunity: 99, confidence: 99, vetoes: ["out_of_market"] }, issuedBy: "t", nowISO: now });
+  assert.equal(veto.ok, false);
+  assert.equal(veto.code, "vetoed");
+  assert.match(veto.error, /not a low score/);
+
+  // Exactly at the boundary, which is where a copied threshold drifts.
+  const edge = await briefStore.issueBrief({ brandId: "b1", brief: base, gate: { opportunity: 75, confidence: 75 }, issuedBy: "t", nowISO: now });
+  assert.equal(edge.ok, true, "75/75 is the brief band, inclusive");
+  assert.ok(edge.stored.approvalId.startsWith("ap_"), "it must create an item in the platform's own approvals workflow");
+});
+
+test("§18: RE-ISSUING INVALIDATES THE APPROVAL, and the refusal is read", async () => {
+  briefStore.__resetBriefs();
+  const now = "2026-11-10T12:00:00Z";
+  const base = { ...FIXTURE, brief_id: "gb_reissue", valid_from: "2026-11-10T10:00:00Z", expires_at: "2026-11-17T10:00:00Z" };
+  const first = await briefStore.issueBrief({ brandId: "b2", brief: base, gate: { opportunity: 90, confidence: 90 }, issuedBy: "t", nowISO: now });
+  assert.equal(first.ok, true);
+
+  await approvals.transition({ id: first.stored.approvalId, action: "submit", actor: "t", nowISO: now });
+  await approvals.transition({ id: first.stored.approvalId, action: "approve", actor: "t", nowISO: now });
+  assert.equal((await approvals.getItem(first.stored.approvalId)).state, "approved");
+
+  const live = await briefStore.effectiveBrief({ brandId: "b2", briefId: "gb_reissue", req: { channel: "seo", nowISO: "2026-11-11T10:00:00Z" } });
+  assert.equal(live.ok, true, "an approved brief inside its window resolves");
+
+  // The edit.
+  const again = await briefStore.issueBrief({ brandId: "b2", brief: { ...base, objective: "A different objective" }, gate: { opportunity: 90, confidence: 90 }, issuedBy: "t", nowISO: "2026-11-10T13:00:00Z" });
+  assert.equal(again.ok, true);
+  assert.equal(again.stored.brief.brief_version, base.brief_version + 1, "an edit bumps the version");
+
+  // THE DEFECT THIS TEST EXISTS FOR. The first implementation called
+  // `transition` with an action that is illegal from `approved`, threw the
+  // refusal away, and left a sign-off standing for content nobody approved —
+  // this repo's oldest fault, a value that never crossed a boundary.
+  assert.equal((await approvals.getItem(first.stored.approvalId)).state, "draft", "the sign-off must actually be withdrawn");
+  const after = await briefStore.effectiveBrief({ brandId: "b2", briefId: "gb_reissue", req: { channel: "seo", nowISO: "2026-11-11T10:00:00Z" } });
+  assert.equal(after.ok, false);
+  assert.equal(after.code, "not_approved");
+});
+
+test("§14: a frozen publish lane refuses FIRST, and through the same shape", async () => {
+  briefStore.__resetBriefs();
+  stop.__resetEmergencyStop();
+  const now = "2026-11-10T12:00:00Z";
+  // Deliberately an EXPIRED brief, so the test proves the ORDER: a frozen lane
+  // must be reported before the window, because telling somebody their brief
+  // expired when their whole publish lane is stopped sends them to fix the
+  // wrong thing.
+  const expired = { ...FIXTURE, brief_id: "gb_frozen", valid_from: "2026-11-01T10:00:00Z", expires_at: "2026-11-02T10:00:00Z" };
+  const issued = await briefStore.issueBrief({ brandId: "b3", brief: expired, gate: { opportunity: 90, confidence: 90 }, issuedBy: "t", nowISO: now });
+  assert.equal(issued.ok, true);
+
+  const before = await briefStore.effectiveBrief({ brandId: "b3", briefId: "gb_frozen", req: { channel: "seo", nowISO: now } });
+  assert.notEqual(before.code, "channel_frozen", "nothing is frozen yet");
+
+  await stop.engage({ scope: "b3", lanes: ["publish"], reason: "incident", engagedBy: "ops", nowISO: now });
+  const frozen = await briefStore.effectiveBrief({ brandId: "b3", briefId: "gb_frozen", req: { channel: "seo", nowISO: now } });
+  assert.equal(frozen.code, "channel_frozen");
+  assert.equal(frozen.ok, false);
+  assert.equal(frozen.baseline, true, "a freeze must arrive in the same shape every other refusal uses");
+
+  // THE STOP REFUSES A THIN RELEASE NOTE, and this test originally passed one.
+  // It then read the stop's correct refusal as a defect in the brief resolver.
+  // Asserting it deliberately means the next person meets the rule rather than
+  // the symptom.
+  const thin = await stop.release({ scope: "b3", releasedBy: "ops", note: "over", nowISO: now });
+  assert.equal(thin.ok, false, "a four-character note must not lift an incident halt");
+  const stillFrozen = await briefStore.effectiveBrief({ brandId: "b3", briefId: "gb_frozen", req: { channel: "seo", nowISO: now } });
+  assert.equal(stillFrozen.code, "channel_frozen", "a refused release leaves the freeze in place");
+
+  const lifted = await stop.release({ scope: "b3", releasedBy: "ops", note: "incident closed, publishing resumed", nowISO: now });
+  assert.equal(lifted.ok, true);
+  const released = await briefStore.effectiveBrief({ brandId: "b3", briefId: "gb_frozen", req: { channel: "seo", nowISO: now } });
+  assert.notEqual(released.code, "channel_frozen");
+  // And NOW the next refusal in the order answers, proving the freeze really
+  // was ahead of it rather than being the only thing wrong. The order is
+  // frozen → unknown brief → unapproved → window, and this brief was never
+  // approved, so `not_approved` is what surfaces — an unapproved brief is
+  // unusable whatever its dates say, which is why it is checked before them.
+  assert.equal(released.code, "not_approved");
+});
+
+test("a brief id that is not this brand's never says whether it exists", async () => {
+  briefStore.__resetBriefs();
+  const now = "2026-11-10T12:00:00Z";
+  await briefStore.issueBrief({ brandId: "tenant_a", brief: { ...FIXTURE, brief_id: "gb_private" }, gate: { opportunity: 90, confidence: 90 }, issuedBy: "t", nowISO: now });
+  const theirs = await briefStore.effectiveBrief({ brandId: "tenant_b", briefId: "gb_private", req: { channel: "seo", nowISO: now } });
+  assert.equal(theirs.code, "no_such_brief");
+  // The SAME answer for an id that was never issued at all — the two cases must
+  // be indistinguishable or the refusal is an existence oracle.
+  const nobody = await briefStore.effectiveBrief({ brandId: "tenant_b", briefId: "gb_never", req: { channel: "seo", nowISO: now } });
+  assert.equal(nobody.code, "no_such_brief");
+  assert.equal(theirs.reason, nobody.reason);
+  // And tenant_a still has it.
+  assert.equal((await briefStore.listBriefs("tenant_a")).length, 1);
+  assert.equal((await briefStore.listBriefs("tenant_b")).length, 0);
+});
+
+test("a stored document is not a brief until something has checked it", () => {
+  assert.equal(briefStore.briefFromStored(null), null);
+  assert.equal(briefStore.briefFromStored({ brandId: "b", approvalId: "ap_1" }), null, "no brief at all");
+  assert.equal(briefStore.briefFromStored({ brandId: "b", approvalId: "ap_1", brief: { ...FIXTURE, market: "nope" } }), null, "a document that no longer validates is dropped, never repaired into something that looks real");
+  const good = briefStore.briefFromStored({ brandId: "b", approvalId: "ap_1", brief: FIXTURE, issuedAt: "x", issuedBy: "y", updatedAt: "z" });
+  assert.ok(good);
+  assert.equal(good.brief.brief_id, FIXTURE.brief_id);
+});
+
+test("the board carries the activation side and never invents it", () => {
+  const plain = board.createItem({ id: "o1", topic: "t", at: "2026-11-10T00:00:00Z" });
+  // ABSENT, not zero. A stored 0 for "nobody assessed it" reads on screen as
+  // "assessed, and worthless" — a different and wrong claim.
+  assert.equal("confidence" in plain, false);
+  assert.equal("band" in plain, false);
+  assert.equal("vetoes" in plain, false);
+
+  const assessed = board.createItem({ id: "o2", topic: "t", at: "2026-11-10T00:00:00Z", confidence: 58.2, band: "watch", vetoes: ["restricted_topic"] });
+  assert.equal(assessed.confidence, 58.2);
+  assert.equal(assessed.band, "watch");
+  assert.deepEqual(assessed.vetoes, ["restricted_topic"]);
+  // Zero is a real assessment and must survive.
+  assert.equal(board.createItem({ id: "o3", topic: "t", at: "2026-11-10T00:00:00Z", confidence: 0 }).confidence, 0);
+  // An empty veto list is not a veto.
+  assert.equal("vetoes" in board.createItem({ id: "o4", topic: "t", at: "2026-11-10T00:00:00Z", vetoes: [] }), false);
+});
+
+test("the PROVIDER mapper keeps the publisher and the date — driven with no key", () => {
+  // THIS PATH HAS NEVER BEEN REACHABLE BY A TEST. It only runs with a live
+  // SERPER_API_KEY, which CI does not have and this container does not have, so
+  // the one function deciding which provider fields survive into the platform
+  // was unexercised — and it had been dropping both of these the whole time.
+  const payload = {
+    news: [
+      { title: "CDE adoption rises", link: "https://ex.com/a", snippet: "s", date: "2 hours ago", source: "Reuters" },
+      { title: "Handover packs", link: "https://ex.com/b", snippet: "s2", date: "Mar 3, 2026", source: "FT" },
+    ],
+  };
+  const out = search.normaliseSerper(payload, "news");
+  assert.equal(out.length, 2);
+  assert.equal(out[0].extra.source, "Reuters");
+  assert.equal(out[0].extra.date, "2 hours ago");
+  assert.equal(out[1].extra.source, "FT");
+  assert.notEqual(ts.ageHoursFrom(out[0].extra.date, Date.now()), null);
+
+  // A news item the provider sent WITHOUT them must not acquire them.
+  const bare = search.normaliseSerper({ news: [{ title: "No date", link: "https://ex.com/c" }] }, "news");
+  assert.equal(bare[0].extra.source, undefined);
+  assert.equal(bare[0].extra.date, undefined);
+  assert.equal(ts.freshnessFrom(ts.ageHoursFrom(bare[0].extra?.date, Date.now())), 0, "an absent date scores zero freshness, never full marks");
+
+  // The other result types still map as they did — nothing was traded away.
+  const places = search.normaliseSerper({ places: [{ title: "Shop", address: "1 High St", rating: 4.5, phoneNumber: "+44" }] }, "places");
+  assert.equal(places[0].snippet, "1 High St");
+  assert.equal(places[0].extra.rating, 4.5);
+  assert.equal(places[0].extra.phone, "+44");
+  assert.deepEqual(search.normaliseSerper({}, "news"), [], "a payload with nothing in it maps to nothing");
+});
+
+test("THE TENANT FILTER, applied where a test can actually reach it", () => {
+  // The Firestore query narrows by brandId and no test here can run it — no
+  // Admin credentials in CI or in this container. A mutation sweep proved that
+  // deleting the `where` clause broke nothing, which on a tenant boundary is
+  // the one place that is not acceptable. This is the same filter, pure.
+  const rec = (brandId, id) => ({ brandId, brief: { ...FIXTURE, brief_id: id }, approvalId: "ap_x", issuedWith: { opportunity: 0, confidence: 0, vetoes: [], band: "brief" }, issuedAt: "a", issuedBy: "b", updatedAt: "c" });
+  const all = [rec("tenant_a", "g1"), rec("tenant_b", "g2"), rec("tenant_a", "g3")];
+  assert.deepEqual(briefStore.onlyThisBrand(all, "tenant_a").map((r) => r.brief.brief_id), ["g1", "g3"]);
+  assert.deepEqual(briefStore.onlyThisBrand(all, "tenant_b").map((r) => r.brief.brief_id), ["g2"]);
+  assert.deepEqual(briefStore.onlyThisBrand(all, "tenant_c"), []);
+  // An empty or whitespace brand matches NOTHING. Falling back to "everything"
+  // for a missing tenant is how a filter becomes a leak.
+  assert.deepEqual(briefStore.onlyThisBrand(all, ""), []);
+  assert.deepEqual(briefStore.onlyThisBrand(all, "   "), []);
+  // No substring or prefix matching — the dangerous direction, since a filter
+  // that matches prefixes hands "tenant_a" everything under "tenant_a_b".
+  assert.deepEqual(briefStore.onlyThisBrand(all, "tenant"), []);
+  assert.deepEqual(briefStore.onlyThisBrand(all, "tenant_a_extra"), []);
+  assert.deepEqual(briefStore.onlyThisBrand(all, "TENANT_A"), [], "ids are case-sensitive, as the store writes them");
+  // Surrounding whitespace is trimmed, deliberately and consistently with the
+  // route, which trims `brandId` before the access check — so the id that was
+  // authorised and the id that filters are the same string. Not trimming here
+  // would authorise a caller for a tenant and then show them nothing.
+  assert.deepEqual(briefStore.onlyThisBrand(all, " tenant_a ").map((r) => r.brief.brief_id), ["g1", "g3"]);
+});
