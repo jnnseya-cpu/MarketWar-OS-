@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MarketingShell, H2, Prose } from "@/components/marketing";
 import CookieSettingsLink from "@/components/CookieSettingsLink";
 import { SIGNUP_WINDOW_DAYS } from "@/shared/signup-attribution";
+import { icoRegistration } from "@/shared/site";
 
 export const metadata: Metadata = {
   title: "Privacy Policy · MarketWar OS",
@@ -10,11 +11,24 @@ export const metadata: Metadata = {
 };
 
 export default function PrivacyPage() {
+  const ICO = icoRegistration();
   return (
     <MarketingShell kicker="Legal" title="Privacy Policy" subtitle="Last updated 2 August 2026. How we collect, use, protect and share personal data — written to align with UK GDPR and equivalent regimes.">
       <Prose>
         <H2>1. Who we are</H2>
         <p>MarketWar OS (marketwaros.com) is the data controller for account and marketing data, and a data processor for the customer data you upload and process through the platform. Contact our privacy team via the <Link href="/contact" className="text-emerald-400 hover:text-emerald-300">contact page</Link>.</p>
+        {/* WHERE THE CONTROLLER IS REGISTERED. This paragraph named us as
+            controller and then said nothing about where that controller is
+            registered — the one fact a reader checking up on us would look
+            for, and the one a regulator expects to find. Rendered only when
+            the number is well-formed; an unverifiable string is worse here
+            than silence. */}
+        {ICO ? (
+          <p className="text-[14px] text-slate-400">
+            Registered with the UK Information Commissioner&rsquo;s Office under registration number{" "}
+            <strong className="text-slate-200">{ICO}</strong>, which you can check on the ICO&rsquo;s public register.
+          </p>
+        ) : null}
 
         <H2>2. Data we collect</H2>
         <ul className="space-y-1.5">

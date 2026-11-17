@@ -1,7 +1,7 @@
 # Every key this platform reads, and the order to add them in
 
-**130 environment variables.** 95 of them can be typed into the Admin Control
-Centre (`/dashboard/admin` → API keys); **35 cannot** and must go in Vercel →
+**131 environment variables.** 95 of them can be typed into the Admin Control
+Centre (`/dashboard/admin` → API keys); **36 cannot** and must go in Vercel →
 Settings → Environment Variables, for reasons given below.
 
 Nothing here is a guess. Every name, every "what it unlocks" and every "where to
@@ -195,7 +195,7 @@ price re-derive from a real bill.
 
 ---
 
-## The 35 that cannot live in the admin screen, and why
+## The 36 that cannot live in the admin screen, and why
 
 A screen that accepts a key it cannot use is worse than one that refuses it, so
 each of these is refused there with its reason.
@@ -213,7 +213,7 @@ key out of Firestore to connect to Firestore is a paradox:
 Keeping it inside what it decrypts cannot work, and storing it unencrypted would
 expose every other key there.
 
-**Everything `NEXT_PUBLIC_*` (17 more).** Next.js **inlines** these into the
+**Everything `NEXT_PUBLIC_*` (18 more).** Next.js **inlines** these into the
 browser bundle when the site is *built*, so a value saved now cannot change a
 string compiled last week. Accepting one would be a reported success that never
 happened.

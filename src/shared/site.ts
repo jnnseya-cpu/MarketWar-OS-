@@ -66,6 +66,56 @@ export const SUPPORT_EMAIL = "info@marketwaros.com";
 export const isPublicProfileUrl = (v: unknown): boolean =>
   /^https:\/\/[^\s]+\.[^\s]+$/.test(String(v ?? "").trim());
 
+/**
+ * Does this look like an ICO registration number at all?
+ *
+ * The current format is a letter prefix and seven digits — `C2089949`,
+ * `Z1234567` — and older entries use `ZA` and six. The check is deliberately a
+ * SHAPE check and nothing more: it cannot tell a real registration from a
+ * well-formed invention, and pretending otherwise would be the more dangerous
+ * claim. What it does stop is a half-typed or empty value being published on a
+ * legal page as though it were a regulatory identifier.
+ */
+export const isIcoRegistrationFormat = (v: unknown): boolean =>
+  /^(?:Z[A-Z]?\d{6,7}|[A-Z]\d{7})$/.test(String(v ?? "").trim().toUpperCase());
+
+/**
+ * THIS PLATFORM'S OWN ICO REGISTRATION, as the data controller.
+ *
+ * A committed constant for the same reason `SUPPORT_EMAIL` above is one: it is
+ * this deployment's own public identity, not a per-tenant value, and it is
+ * published on the ICO's own register rather than being a secret. The privacy
+ * policy names us as controller in its first paragraph and said nothing about
+ * where that controller is registered, which is the one fact a reader checking
+ * up on us would actually want.
+ *
+ * A DIFFERENT OPERATOR MUST OVERRIDE IT. `NEXT_PUBLIC_ICO_REGISTRATION` wins
+ * when set, and a malformed override publishes NOTHING rather than falling back
+ * to ours — somebody setting that variable is plainly trying to state their own
+ * registration, and quietly showing them ours would be exactly the
+ * machine-readable lie `isPublicProfileUrl` above exists to prevent, told about
+ * a regulator.
+ *
+ * NOT VERIFIED AGAINST THE REGISTER from this container: ico.org.uk is not
+ * reachable here, so this is the number the operator supplied and a shape check,
+ * which is all this file can honestly claim.
+ */
+const ICO_FALLBACK = "C2089949";
+
+export function icoRegistration(): string {
+  const raw = process.env.NEXT_PUBLIC_ICO_REGISTRATION;
+  // UNSET AND EMPTY ARE DIFFERENT ANSWERS, and the distinction survives the
+  // build because an unset NEXT_PUBLIC_* inlines as undefined while one set to
+  // "" inlines as "". Unset means nobody has expressed a view, so this
+  // deployment's own number applies. SET-BUT-EMPTY is somebody saying "I have
+  // no registration to state here" — honouring that costs us nothing, since
+  // our own deployment never sets the variable at all, and the alternative is
+  // publishing our registration on their legal page.
+  if (raw === undefined) return ICO_FALLBACK;
+  const override = raw.trim().toUpperCase();
+  return isIcoRegistrationFormat(override) ? override : "";
+}
+
 export const OG_IMAGE = "/brand/social/og-card.png";
 
 /**
