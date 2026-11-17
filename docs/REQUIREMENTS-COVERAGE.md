@@ -13341,3 +13341,75 @@ and a schema nothing emits are both just type definitions:
   API and approved by a person. The gate is closed in the sense that the scores
   can now reach the band; turning that into automatic issuance is a separate
   decision about what the platform may do unattended, and is not implied here.
+
+---
+
+## 55. The ICO registration, published (§184, 2026-11-17)
+
+Owner: *"ICO number : C2089949"*.
+
+The privacy policy named MarketWar OS as the data controller in its first
+paragraph and said **nothing about where that controller is registered** — the
+one fact a reader checking up on us would look for, and the one a regulator
+expects to find. The platform referenced the ICO fifteen times across agents,
+the LIA module, the cookie banner and the erasure receipts, and stated its own
+registration nowhere.
+
+### Where it went
+
+- **`src/shared/site.ts`** — `icoRegistration()` and `isIcoRegistrationFormat()`,
+  beside `SUPPORT_EMAIL`, which is the existing precedent for a committed
+  platform-identity constant. One place, so a correction lands once.
+- **`/privacy` §1** — stated immediately after the controller declaration,
+  where it belongs, and pointing at the ICO's own public register so the reader
+  can check it rather than take our word.
+- **`LegalEntity.tsx`** — the operator identity block, used in the Terms.
+
+**It renders even while the trading identity is still unset.** That block was
+all-or-nothing: with `NEXT_PUBLIC_LEGAL_ENTITY_NAME` missing it printed "these
+details are not yet published" and withheld the identifier the owner HAD
+supplied. A fact we hold and do not state is not caution — it is a smaller
+version of the same gap. `IcoLine` now sits outside the early return, and a
+test asserts both branches render it.
+
+### The rules around it
+
+- **A malformed override publishes NOTHING, never ours.** Somebody setting
+  `NEXT_PUBLIC_ICO_REGISTRATION` is plainly trying to state *their* registration;
+  quietly falling back to MarketWar's would be the machine-readable lie that
+  `isPublicProfileUrl` already exists to prevent — told about a regulator, on
+  somebody's legal page.
+- **Unset and set-but-empty are different answers.** An unset `NEXT_PUBLIC_*`
+  inlines as `undefined` and an empty one as `""`, and that distinction survives
+  the build. Unset means nobody expressed a view, so this deployment's number
+  applies; empty is an operator saying "I have none to state", and is honoured.
+  It costs us nothing, because our own deployment never sets the variable.
+- **The format check is a SHAPE check and says so.** It accepts `C` + 7 digits,
+  `Z` + 7 and `ZA` + 6. It cannot tell a real registration from a well-formed
+  invention — `C0000000` passes — and a test asserts that explicitly, because
+  pretending otherwise would be the more dangerous claim.
+
+### What is NOT claimed
+
+**The number was not verified against the ICO's register.** `ico.org.uk` is not
+reachable from this container — the proxy refused the tunnel with a 403 — so
+what has been checked is the format and nothing else. This is the number the
+owner supplied, published as supplied. If it is mistyped, the fix is one
+constant in `shared/site.ts`.
+
+### Gaps recorded
+
+- **It appears in `/api/health/live`'s `envMissing` list**, because the
+  catalogue reports any catalogued variable this process does not hold and we
+  deliberately do not set it — the number lives in code. The entry's own
+  `unlocks` text says it is "only needed by a DIFFERENT operator", so the
+  explanation travels with the name and a reader of that list is not told to go
+  and configure something already published. Verified by reading the live
+  endpoint rather than assuming.
+- **`npm run typecheck` reported success for a broken tree earlier in this
+  session**, because the command was piped (`npm run -s typecheck | tail`) and a
+  pipeline exits with the status of its LAST element. The container had been
+  rebuilt with no `node_modules`, so tsc was emitting 19,115 errors while the
+  check printed "TYPECHECK-OK". Dependencies reinstalled and every gate re-run
+  reading its real exit code. **The instrument was wrong, and it was wrong in
+  the direction that reports success.**
