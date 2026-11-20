@@ -24956,7 +24956,19 @@ test("audit D-12: a MarketWar payment from a referred account accrues a commissi
   // AND THE WEBHOOK ACTUALLY CALLS IT. A module nothing invokes is the defect
   // this whole finding was about — so assert the CALL, not the identifier.
   const route = codeOf(readFileSync(new URL("../src/app/api/webhooks/stripe/route.ts", import.meta.url), "utf8"));
-  assert.match(route, /commission = await commissionForPayment\(\{/, "the webhook still does not pay a commission");
+  // THE CALL, NOT THE LINE — which is what the comment above already asked for.
+  // This asserted the exact text `commission = await commissionForPayment({`
+  // and broke when the accrual was put behind a deadline, a refactor that kept
+  // every word of what this finding is about.
+  const body = route.slice(route.indexOf("export const runtime"));
+  assert.match(body, /commissionForPayment\(\{/, "the webhook still does not pay a commission");
+  assert.match(body, /commission = accrued\.value/, "and the accrual it computes must reach the response");
+  // BOUNDED. The call was awaited bare, and an unbounded accrual on this path
+  // delayed the acknowledgement until the invocation was killed — Stripe counts
+  // no answer at all as a failed delivery and eventually disables the endpoint.
+  assert.match(body, /withStoreDeadline\("the creator commission accrual"/);
+  // A timeout is the same storage failure the paragraph above chose 500 for.
+  assert.match(body, /if \(!accrued\.ok\)[\s\S]{0,260}status: 500/);
   assert.match(route, /!commission\.ok && !commission\.terminal/, "a retryable commission failure is acked as done");
   assert.match(route, /walletApplied\?\.applied/, "a commission accrues for a payment that never credited a wallet");
   assert.match(route, /paidAtISO: paidAtFromEvent\(event\)/,

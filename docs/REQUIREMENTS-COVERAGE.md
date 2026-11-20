@@ -13413,3 +13413,127 @@ constant in `shared/site.ts`.
   check printed "TYPECHECK-OK". Dependencies reinstalled and every gate re-run
   reading its real exit code. **The instrument was wrong, and it was wrong in
   the direction that reports success.**
+
+---
+
+## 56. The webhook that answered nothing (§185, 2026-11-20)
+
+Stripe emailed: 35 consecutive deliveries to
+`https://www.marketwaros.com/api/webhooks/stripe` failed, **first failure
+17 November 19:16 UTC**, and the endpoint will be **disabled on 26 November
+19:16 UTC**. Account: JNN Global Ltd, `acct_1OqYHECI7tOS13Se`. Every failure is
+in Stripe's **"other errors"** bucket — its category for an exchange that
+produced **no HTTP status at all**.
+
+That distinction is the whole problem. A route that answers 500 is retried for
+three days. A route that answers **nothing** is counted as broken and the
+endpoint is switched off.
+
+### What was wrong in our code
+
+The handler awaited, serially, before replying:
+
+| Step | Bounded? |
+| --- | --- |
+| `recordVerifiedDelivery` | yes — §155 bounded this one |
+| `applyWebhookOutcome` (Firestore transaction) | **no** |
+| `commissionForPayment` (accrual) | **no** |
+| `getWallet` (read) | **no** |
+| `adminAuth.getUser` (Firebase Auth, network) | **no** |
+| `sendCapiConversion` (outbound HTTPS to Meta) | its fetch, yes |
+| `recordEvent` (ledger write) | **no** |
+
+…and the route stated **no `maxDuration`**, so it ran under the platform's
+invisible default while every other heavy route here states its own (the agent
+route 120, the trend cron 300).
+
+**This platform had already written the diagnosis down.** §155, about a
+different file: *"a try/catch bounds what happens when a call FAILS, never how
+long it takes to fail — the measured block was over 75 seconds, far past the
+invocation ceiling, so the route was killed and Stripe was told nothing."* That
+fix built `withStoreDeadline`, applied it to `webhook-receipt.ts`, and stopped.
+The money path it was written for stayed unbounded for another two months.
+
+The handler's comments reason carefully about *which status to return* for every
+kind of failure. Not one of them reasons about *time*. The comment above the
+Meta call says it "cannot make the webhook fail" — true of errors, false of
+duration, and duration is what kills an invocation.
+
+### The fix
+
+- **`export const maxDuration = 30`** — the ceiling is ours and stated, and
+  deliberately well above the internal budget, because a budget can only
+  produce an honest 500 if the invocation outlives it.
+- **Money path bounded** (`applyWebhookOutcome`, `commissionForPayment`): a
+  timeout returns **500 with `willRetry: true`**, and says `timedOut` so
+  "refused us" and "never answered" are distinguishable. Safe because every
+  write there is idempotent — Stripe redelivers and the credit lands.
+- **The best-effort tail abandoned, never blocking the ack.** The wallet read,
+  the Auth lookup and the Meta call run on a payment whose money has *already*
+  persisted; past `ACK_TARGET_MS` they are skipped outright and the body says
+  so. A conversion report is explicitly allowed to be the thing that gets
+  dropped.
+- **The acknowledgement carries `ms`.** Thirty-five deliveries failed and
+  nothing on this side could say whether the handler had been slow, because the
+  number was never recorded. Stripe shows the response body on every delivery.
+
+### What this does NOT prove
+
+**The hang is a cause, not confirmed to be THE cause.** "No HTTP status" has
+three other explanations and all of them are outside our code: `www` not
+resolving, TLS not serving on that hostname, or a redirect. **I could not reach
+the domain to tell them apart** — the agent proxy refuses `marketwaros.com` and
+`www.marketwaros.com` with a 403 on the tunnel, exactly as it refuses
+`ico.org.uk`.
+
+The platform already owns the instrument that settles it: `/api/health/stripe`
+→ `selfDelivery`, built in §143, which delivers a correctly signed event to our
+own endpoints the way Stripe does — redirects unfollowed, because Stripe does
+not follow them — and reports what Stripe would have seen. Its own note names
+the two cases: *"a redirect means the endpoint is set to a host that forwards
+rather than answers, and no HTTP response at all means the hostname does not
+resolve or nothing is serving TLS on it — neither of which our code can fix
+from inside."*
+
+Ruled out by reading rather than assumed: the middleware does **not** block
+signed deliveries — a request carrying `stripe-signature` on a machine-lane
+path is allowed through (`lane: "machine", allow: true`), so the human gate is
+not the cause.
+
+### Two instruments wrong in the direction that reports success
+
+**A guard that broke on a behaviour-preserving refactor, twice.** `meta-capi`
+asserted the literal `const credit = wallet.lastCredit;` and D-12 asserted
+`commission = await commissionForPayment({`. Both were textual stand-ins for
+properties that the refactor kept intact — the credit still comes from the
+wallet stamp, the webhook still calls the accrual. Both are now bound to the
+property, and both additionally assert the new deadline, so they now guard more
+than they did.
+
+**And the filter that nearly hid one.** Counting non-environmental failures
+with `grep -cv "crawl\|audit"` matched the word "audit" inside the test name
+*"audit D-12: a MarketWar payment … accrues a commission"* and reported **zero**
+regressions while that test was red. The filter now names the twelve known DNS
+failures by their actual prefixes. Same shape as the piped `typecheck` in §184:
+a convenience in the reporting path that fails toward "fine".
+
+### Verified
+
+6 new tests, **5 of 5 mutants killed** (the wallet bound removed, the stated
+ceiling removed, the ceiling set below the budget, the tail skip removed, the
+timing dropped). 12 gates pass; 2,423 tests (2,404 pass, **12 failing, all the
+known DNS crawler set and none of them mine**, 7 skipping loudly); build clean;
+`verify:drivers` 385 behaviours, 0 broken.
+
+### Owner actions — the deadline is 26 November 19:16 UTC
+
+1. **Open `https://www.marketwaros.com/api/health/stripe`** and read
+   `selfDelivery.results`. Each row's `stripeWouldSee` is what Stripe gets. If
+   the configured URL fails and another address succeeds, **that difference is
+   the answer** and the fix is to repoint the endpoint in the Stripe dashboard.
+2. **If no address answers at all**, the cause is DNS or TLS on
+   `www.marketwaros.com` and is in Cloudflare/Vercel, not in this repo.
+3. **`npm run drive:commerce`** makes Stripe emit and deliver a real event and
+   reads back whether it verified — the one check that settles it end to end.
+4. Deploying this change is worth doing regardless: an unbounded money path is
+   a defect whether or not it is today's cause.

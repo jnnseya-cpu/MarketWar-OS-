@@ -265,7 +265,19 @@ test("the webhook reports from the wallet stamp, never from the Stripe event alo
   // is the proof money landed. §143: the commercial-loop driver claimed a credit
   // from the event TYPE and printed "PROVEN END TO END" for a delivery that
   // credited nothing.
-  assert.match(route, /const credit = wallet\.lastCredit;/);
+  // THE PROPERTY, NOT THE LINE. This asserted the exact text
+  // `const credit = wallet.lastCredit;` and broke when the wallet read was put
+  // behind a deadline — a refactor that preserved every word of what this test
+  // is about. What matters is that the credit comes from the WALLET STAMP and
+  // never from the Stripe event, so that is what is checked.
+  assert.match(route, /const credit = [^;]*\blastCredit\b/,
+    "the credit must still be read from the wallet stamp");
+  assert.doesNotMatch(route, /const credit = [^;]*event\.data/,
+    "and never from the Stripe event, which is what §143 printed PROVEN for a delivery that credited nothing");
+  // The read that produces it is bounded: an unbounded wallet read on this path
+  // delayed the acknowledgement until the invocation was killed, and Stripe
+  // counts no answer as a failed delivery.
+  assert.match(route, /withStoreDeadline\("the wallet read for conversion reporting"/);
   assert.match(route, /credit\.eventId !== event\.id/,
     "a stamp from an EARLIER payment must not be reported as this event's sale");
   assert.match(route, /walletApplied\?\.applied/, "and only when the credit actually applied");
