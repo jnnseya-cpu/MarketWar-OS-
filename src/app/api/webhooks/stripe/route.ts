@@ -11,6 +11,7 @@ import { sendCapiConversion } from "@/backend/meta-capi";
 import { getWallet } from "@/backend/wallet";
 import { adminAuth, adminConfigured } from "@/backend/firebase-admin";
 import { clickIdsFromMetadata } from "@/shared/click-attribution";
+import { withStoreDeadline } from "@/shared/store-failure";
 
 // Locate the org whose wallet a payment credits. MarketWar-created checkouts stamp
 // the id three ways (client_reference_id + metadata.orgId + metadata.marketwar_org_id)
@@ -56,7 +57,59 @@ function paidAtFromEvent(event: StripeEventLike): string {
 // Runs on the Node runtime so we can read the raw body for signature checks.
 export const runtime = "nodejs";
 
+// AN EXPLICIT CEILING, BECAUSE THE INVISIBLE ONE WAS KILLING THIS ROUTE.
+//
+// Stripe reported 35 consecutive deliveries with "other errors" — its category
+// for an exchange that produced NO HTTP STATUS AT ALL. A route that answers 500
+// is retried; a route that answers nothing counts toward having the endpoint
+// disabled, which Stripe scheduled for 26 November 2026.
+//
+// Every other heavy route here states its own `maxDuration` (the agent route
+// 120, the trend cron 300). This one never did, so it ran under the platform's
+// default — and below it this handler awaited a Firestore transaction, a
+// commission write, a wallet read, a Firebase Auth lookup, an outbound call to
+// Meta and a ledger write, ALL BEFORE REPLYING. On a cold connection that is
+// comfortably past a short default, and the function is killed mid-flight.
+//
+// §155 is this platform's own note on the same failure, in a different file:
+// "a try/catch bounds what happens when a call FAILS, never how long it takes
+// to fail — the route is killed first, so Stripe gets no answer at all." That
+// fix bounded `webhook-receipt.ts` and stopped there. Everything else on this
+// path stayed unbounded.
+//
+// The ceiling is deliberately well above the internal budget below: the budget
+// is what produces an honest 500, and it can only do that if the invocation
+// outlives it.
+export const maxDuration = 30;
+
+// WHAT THE CALLER WAITS, per step. Chosen to match the measured figures already
+// recorded in `webhook-receipt.ts` — a cold Firestore write ~2.5s, the same
+// write against an unreachable store >75,000ms.
+//
+// The money path gets a real ceiling and treats a timeout as RETRIABLE: Stripe
+// redelivers for three days and every write on it is idempotent, so a 500 costs
+// nothing and loses nothing. The best-effort tail gets a small one and is simply
+// abandoned, because none of it can fail a payment that already landed.
+const WALLET_DEADLINE_MS = 6_000;
+const COMMISSION_DEADLINE_MS = 6_000;
+/** The whole conversion/attribution tail — three network calls that must never delay an ack. */
+const TAIL_DEADLINE_MS = 2_500;
+/**
+ * Past this, the tail is skipped outright rather than started.
+ *
+ * A payment whose money already persisted is a payment Stripe must be told
+ * about. Spending another second of a dying invocation on a conversion report
+ * is how the acknowledgement itself gets lost.
+ */
+const ACK_TARGET_MS = 9_000;
+
 export async function POST(req: NextRequest) {
+  // ANCHORED AT ARRIVAL. A budget measured from anywhere later is a budget that
+  // ignores the work already done, which is the fiction that produces a killed
+  // invocation instead of an answer.
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
+
   // Raw body is required for signature verification — read text, not json.
   const raw = await req.text();
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -115,7 +168,24 @@ export async function POST(req: NextRequest) {
     // once the store is reachable. Idempotency by event id makes that safe.
     try {
       const orgId = orgIdFromEvent(event);
-      const res = await applyWebhookOutcome(orgId, outcome);
+      // BOUNDED. A hanging transaction used to take the whole invocation with
+      // it, and Stripe was told nothing at all — which is worse than any error,
+      // because nothing is what gets an endpoint disabled.
+      const applied = await withStoreDeadline("the wallet credit", WALLET_DEADLINE_MS, () =>
+        applyWebhookOutcome(orgId, outcome));
+      if (!applied.ok) {
+        return NextResponse.json({
+          received: false,
+          error: applied.failure.why,
+          fix: applied.failure.fix,
+          eventId: event.id,
+          willRetry: true,
+          // Said plainly, because the two are different problems with the same
+          // status: the store refused us, or the store never answered.
+          timedOut: applied.timedOut,
+        }, { status: 500 });
+      }
+      const res = applied.value;
       walletApplied = { applied: res.applied, reason: res.reason, creditedAcu: res.creditedAcu, planId: res.planId };
       if (res.retriable) {
         return NextResponse.json({ received: false, error: res.reason, eventId: event.id, willRetry: true }, { status: 500 });
@@ -141,7 +211,7 @@ export async function POST(req: NextRequest) {
   let commission: CommissionOutcome | null = null;
   if (outcome.handled && walletApplied?.applied) {
     const obj = (event.data?.object ?? {}) as Record<string, unknown>;
-    commission = await commissionForPayment({
+    const accrued = await withStoreDeadline("the creator commission accrual", COMMISSION_DEADLINE_MS, () => commissionForPayment({
       orgId: orgIdFromEvent(event),
       // The INVOICE id where there is one, so two events describing the same
       // payment cannot both accrue; the event id otherwise.
@@ -163,7 +233,18 @@ export async function POST(req: NextRequest) {
       // would surface again the moment that guard was touched.
       paidAtISO: paidAtFromEvent(event),
       nowISO: new Date().toISOString(),
-    });
+    }));
+    // A TIMEOUT IS A STORAGE FAILURE AND GETS THE SAME ANSWER. The paragraph
+    // above chose 500 for a store that refuses; a store that never replies has
+    // cost this payment exactly the same thing, and the accrual is idempotent
+    // by invoice id, so the redelivery lands it.
+    if (!accrued.ok) {
+      return NextResponse.json({
+        received: false, error: accrued.failure.why, fix: accrued.failure.fix,
+        eventId: event.id, willRetry: true, timedOut: accrued.timedOut,
+      }, { status: 500 });
+    }
+    commission = accrued.value;
     if (!commission.ok && !commission.terminal) {
       return NextResponse.json(
         { received: false, error: commission.reason, eventId: event.id, willRetry: true },
@@ -193,16 +274,32 @@ export async function POST(req: NextRequest) {
   // record first; see `backend/analytics-consent.ts` for why a server-side pixel
   // without that check is the one tracking path a person cannot refuse.
   let conversion: { sent: boolean; why?: string; eventId?: string } | null = null;
-  if (outcome.handled && walletApplied?.applied) {
+  // THE TAIL NEVER DELAYS THE ACKNOWLEDGEMENT.
+  //
+  // What follows is three network calls — a wallet read, a Firebase Auth
+  // lookup and an outbound request to Meta — on a payment whose money has
+  // ALREADY persisted. The comment below says truthfully that none of it can
+  // fail the webhook, and that was only ever true of errors: unbounded, it
+  // could and did delay the reply until the invocation was killed, which is
+  // the one outcome worse than any failure here.
+  //
+  // So it is skipped outright once the budget is spent. A conversion report is
+  // the least important thing on this path and is explicitly allowed to be the
+  // thing that gets dropped.
+  if (outcome.handled && walletApplied?.applied && elapsed() > ACK_TARGET_MS) {
+    conversion = { sent: false, why: `skipped: the money took ${elapsed()}ms to persist and acknowledging Stripe matters more than reporting the conversion` };
+  } else if (outcome.handled && walletApplied?.applied) {
     try {
       const orgId = orgIdFromEvent(event);
       // The STAMP, not the event: `applyWebhookOutcome` writes `lastCredit` in the
       // same transaction as the credit, so its presence is the proof the money
       // landed, and its absence means this event was not a sale (a grace period,
       // a downgrade, a refund, or a subscription start whose invoice pays).
-      const wallet = await getWallet(orgId);
-      const credit = wallet.lastCredit;
-      if (!credit || credit.eventId !== event.id) {
+      const read = await withStoreDeadline("the wallet read for conversion reporting", TAIL_DEADLINE_MS, () => getWallet(orgId));
+      const credit = read.ok ? read.value.lastCredit : null;
+      if (!read.ok) {
+        conversion = { sent: false, why: `the wallet could not be read in time to report this conversion (${read.failure.kind}). The payment is unaffected.` };
+      } else if (!credit || credit.eventId !== event.id) {
         conversion = { sent: false, why: "this event credited no money, so there is no conversion to report" };
       } else {
         // The identifier Meta matches on. Read from Firebase Auth rather than
@@ -211,7 +308,11 @@ export async function POST(req: NextRequest) {
         // inside `sendCapiConversion` and never logged in either form.
         let email: string | null = null;
         if (adminConfigured && adminAuth) {
-          email = await adminAuth.getUser(orgId).then((u) => u.email ?? null).catch(() => null);
+          // Bounded like everything else on this path: `.catch()` handles a
+          // rejection and says nothing about a lookup that never returns.
+          const found = await withStoreDeadline("the account email lookup", TAIL_DEADLINE_MS, () =>
+            adminAuth!.getUser(orgId).then((u) => u.email ?? null));
+          email = found.ok ? found.value : null;
         }
         // The click ids stamped on the session when checkout started. For a
         // RENEWAL the invoice carries the subscription's metadata, which is where
@@ -253,8 +354,10 @@ export async function POST(req: NextRequest) {
   const revenueEvent = brandRevenueFromEvent(event);
   if (revenueEvent) {
     try {
-      await recordEvent(revenueEvent);
-      attributed = { brandId: revenueEvent.brandId, amountGbp: revenueEvent.amountGbp, source: revenueEvent.source };
+      // Bounded and best-effort: an attribution row is worth something, and it
+      // is worth less than Stripe being answered.
+      const wrote = await withStoreDeadline("the revenue attribution write", TAIL_DEADLINE_MS, () => recordEvent(revenueEvent));
+      if (wrote.ok) attributed = { brandId: revenueEvent.brandId, amountGbp: revenueEvent.amountGbp, source: revenueEvent.source };
     } catch {
       /* attribution is best-effort; the webhook still acks */
     }
@@ -263,7 +366,15 @@ export async function POST(req: NextRequest) {
   // `conversion` is reported in the body and never in the status — a conversion
   // that could not be sent is not a payment that failed, and Stripe reads a
   // non-200 as "send it again".
-  return NextResponse.json({ received: true, demoSignature: verdict.demo ?? false, outcome, walletApplied, attributed, commission, conversion });
+  // HOW LONG IT TOOK, in the answer.
+  //
+  // Thirty-five deliveries failed with no status and nothing on this side could
+  // say whether the handler had been slow, because the one number that would
+  // have settled it was never recorded anywhere. Stripe shows the response body
+  // on every delivery in the dashboard, so putting it here means the next
+  // person looking at a failing endpoint can read the duration of the ones that
+  // succeeded instead of guessing.
+  return NextResponse.json({ received: true, ms: elapsed(), demoSignature: verdict.demo ?? false, outcome, walletApplied, attributed, commission, conversion });
 }
 
 export async function GET(req: NextRequest) {
