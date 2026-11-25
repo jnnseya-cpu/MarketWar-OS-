@@ -30,6 +30,7 @@
 // time, so a value saved now cannot change it).
 
 import { useCallback, useEffect, useState } from "react";
+import Verbatim from "@/components/Verbatim";
 import { AlertTriangle, Check, Eye, KeyRound, Loader2, Lock, RefreshCw, Trash2 } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { authedFetch } from "@/frontend/api-client";
@@ -247,12 +248,12 @@ export default function AdminKeys() {
                   <div key={e.name} className="rounded-lg border border-white/[0.07] bg-ink-900/50 p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="font-mono text-xs font-semibold text-white">{e.name}</p>
+                        <Verbatim as="p" className="font-mono text-xs font-semibold text-white">{e.name}</Verbatim>
                         <p className="mt-0.5 text-[11px] text-slate-400">{e.unlocks}</p>
                         <p className="mt-0.5 text-[11px] text-slate-500">Where to get it: {e.where}</p>
                         {e.fingerprint && (
                           <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-slate-500">
-                            <Eye className="h-3 w-3" /> fingerprint <span className="font-mono text-slate-400">{e.fingerprint}</span>
+                            <Eye className="h-3 w-3" /> fingerprint <Verbatim className="font-mono text-slate-400">{e.fingerprint}</Verbatim>
                             {e.updatedAt ? ` · set ${e.updatedAt.slice(0, 10)}` : ""}
                           </p>
                         )}
