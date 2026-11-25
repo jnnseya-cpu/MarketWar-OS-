@@ -24,8 +24,19 @@
 // class of guess this platform refuses to make on somebody's behalf. So the
 // brand STATES it, once, and every writer reads the same answer.
 
-/** The languages offered as one-click choices. `""` means "not stated". */
-export const WRITER_LANGUAGES: { code: string; name: string; label: string }[] = [
+import { rankLanguages } from "@/shared/i18n";
+
+/**
+ * The languages offered as one-click choices. `""` means "not stated".
+ *
+ * FRENCH LEADS, through the same ranking function as the reader's own picker,
+ * so the two lists cannot come to disagree about which language this platform
+ * puts first. The unset placeholder keeps the top of the list: it is not a
+ * language, and `localeRank` gives it a rank of its own rather than sorting it
+ * in among them — "Not set" buried at the bottom of the list it heads would be
+ * a worse select than the one this replaced.
+ */
+export const WRITER_LANGUAGES: { code: string; name: string; label: string }[] = rankLanguages([
   { code: "", name: "", label: "Not set — ask before writing" },
   { code: "en", name: "English", label: "English" },
   { code: "fr", name: "French", label: "Français — French" },
@@ -36,7 +47,7 @@ export const WRITER_LANGUAGES: { code: string; name: string; label: string }[] =
   { code: "de", name: "German", label: "Deutsch — German" },
   { code: "it", name: "Italian", label: "Italiano — Italian" },
   { code: "nl", name: "Dutch", label: "Nederlands — Dutch" },
-];
+], (l) => l.code);
 
 /**
  * The English NAME of a language, from a code or a name.

@@ -12,6 +12,7 @@
 
 import { Globe } from "lucide-react";
 import { LOCALES, useLocale } from "@/frontend/locale-context";
+import { t } from "@/shared/i18n";
 
 export default function LanguageSelector() {
   const { locale, setLocale, detected } = useLocale();
@@ -25,7 +26,15 @@ export default function LanguageSelector() {
         value={known ? short : "en"}
         onChange={(e) => setLocale(e.target.value)}
         className="min-w-0 flex-1 rounded-md border border-ink-700 bg-ink-850 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500/50"
-        title={`Detected from this device: ${detected}. Everything the platform writes — agents, campaigns, articles, emails — comes back in this language. The menus and labels are English and your browser will offer to translate them.`}
+        // THE EXPLANATION IS ITSELF TRANSLATED, and its French says something
+        // different on purpose: the menus are no longer simply "English". The
+        // sentence that describes the platform's language support is the last
+        // sentence that may lie about it.
+        title={t(
+          locale,
+          "Detected from this device: {detected}. Everything the platform writes — agents, campaigns, articles, emails — comes back in this language. The menus and labels are English and your browser will offer to translate them.",
+          { detected }
+        )}
       >
         {LOCALES.map((l) => (
           // EACH NAME IN ITS OWN LANGUAGE, and never translated: a language's

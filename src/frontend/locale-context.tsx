@@ -11,9 +11,20 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { DEFAULT_LOCALE, LOCALE_KEY as KEY, effectiveLocale, languageNameOf, normaliseLocale, primaryLanguage } from "@/shared/locale";
+import { rankLanguages } from "@/shared/i18n";
 
 // A curated set the selector offers explicitly; any device language still works.
-export const LOCALES: { code: string; label: string }[] = [
+//
+// FRENCH FIRST, AND NOT BY HAND. The order comes from `rankLanguages`, the one
+// function that orders every language list on the platform — this picker and
+// the brand's writing language in `writer-language.ts`. Two lists ordered by
+// hand is how one of them comes to lead with French and the other does not,
+// which is a directive half-applied and therefore not applied.
+//
+// Ordering a picker is NOT choosing a default: what a reader is served is
+// decided by `effectiveLocale` — their own choice, then their device, then
+// English — and nothing below changes that.
+export const LOCALES: { code: string; label: string }[] = rankLanguages([
   { code: "en", label: "English" },
   { code: "fr", label: "Français" },
   { code: "es", label: "Español" },
@@ -26,7 +37,7 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "zh", label: "中文" },
   { code: "sw", label: "Kiswahili" },
   { code: "ln", label: "Lingala" },
-];
+], (l) => l.code);
 
 /**
  * The English name, from the SHARED resolver.

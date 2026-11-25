@@ -8358,11 +8358,21 @@ test("the drawer clears the phone's own chrome at both ends", () => {
   assert.match(nav, /pb-\[calc\(1rem\+var\(--safe-bottom\)\)\]/);
 });
 
-test("the drawer can be closed without touching it", () => {
+test("the drawer can be closed without touching it", async () => {
   const nav = readFileSync(new URL("../src/components/MobileNav.tsx", import.meta.url), "utf8");
   assert.match(nav, /e\.key === "Escape"/, "a full-screen drawer with no keyboard exit is a trap");
   assert.match(nav, /aria-modal="true"/);
-  assert.match(nav, /aria-label="Navigation"/);
+  // THE DIALOG IS NAMED — asserted as a name rather than as a source line.
+  // This used to match `aria-label="Navigation"` literally, and broke the day
+  // the label started coming from the French dictionary, while the accessible
+  // name was unchanged and correct in two languages. The third guard in this
+  // repository to assert a line of source and then fail a behaviour-preserving
+  // change; what it was always protecting is that the modal HAS a name.
+  assert.match(nav, /role="dialog"[^>]*aria-label=/, "the modal must carry an accessible name");
+  const { t } = await import("../src/shared/i18n.ts");
+  for (const locale of ["en", "fr"]) {
+    assert.ok(t(locale, "Navigation").trim().length > 0, `the name resolves in ${locale}`);
+  }
 });
 
 // ---------------------------------------------------------------------------

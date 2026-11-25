@@ -9,6 +9,12 @@ import UserMenu from "@/components/UserMenu";
 import LanguageSelector from "@/components/LanguageSelector";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useIsAdmin } from "@/frontend/use-is-admin";
+import { useLocale } from "@/frontend/locale-context";
+// FRENCH, THE PREMIER TRANSLATION. `NAV` below stays ENGLISH deliberately: it
+// is also the command bar's search index, and a French screen that could not be
+// searched in English would be a regression wearing a feature's clothes. The
+// translation happens here, at render.
+import { langFor, t } from "@/shared/i18n";
 import {
   Activity,
   Bot,
@@ -168,6 +174,7 @@ export const NAV = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { isAdmin } = useIsAdmin();
+  const { locale } = useLocale();
   // Honest live-status indicator — never shows the word "demo" to a customer.
   const [liveReady, setLiveReady] = useState<number | null>(null);
   useEffect(() => {
@@ -184,7 +191,14 @@ export default function Sidebar() {
         <BrandLockup markClass="h-7 w-auto" textClass="font-display text-base font-bold tracking-tight text-white" />
       </Link>
       <BrandSwitcher />
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
+      {/* `lang` ON THE ELEMENT, NOT ON THE DOCUMENT — and that is the whole
+          correction §186 left room for. It removed `<html lang>` because
+          declaring the page French over English text silences the browser's
+          translate offer and makes a screen reader pronounce English with
+          French rules. Both still hold for the page. Neither holds for THIS
+          element, whose every string now comes out of our own French
+          dictionary, so here the attribute is simply true. */}
+      <nav lang={langFor(locale)} className="flex-1 space-y-5 overflow-y-auto px-3 py-5">
         {NAV.map((group) => {
           // Hide operator-only items (Admin Centre, Comms Events) from tenants.
           const items = group.items.filter((item) => !(item as { adminOnly?: boolean }).adminOnly || isAdmin);
@@ -192,7 +206,7 @@ export default function Sidebar() {
           return (
           <div key={group.group}>
             <p className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">
-              {group.group}
+              {t(locale, group.group)}
             </p>
             <div className="space-y-0.5">
               {items.map((item) => {
@@ -208,7 +222,7 @@ export default function Sidebar() {
                     }`}
                   >
                     <item.icon className={`h-4 w-4 ${active ? "text-emerald-400" : ""}`} />
-                    {item.label}
+                    {t(locale, item.label)}
                   </Link>
                 );
               })}
@@ -224,16 +238,16 @@ export default function Sidebar() {
         <LanguageSelector />
         <ThemeToggle />
       </div>
-      <div className="border-t border-ink-700/60 px-5 py-4">
+      <div lang={langFor(locale)} className="border-t border-ink-700/60 px-5 py-4">
         {liveReady === null ? (
-          <p className="text-xs text-slate-500">Checking status…</p>
+          <p className="text-xs text-slate-500">{t(locale, "Checking status…")}</p>
         ) : liveReady > 0 ? (
           <p className="flex items-center gap-2 text-xs font-medium text-emerald-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" /> Live intelligence active
+            <span className="h-2 w-2 rounded-full bg-emerald-400" /> {t(locale, "Live intelligence active")}
           </p>
         ) : (
           <p className="flex items-center gap-2 text-xs font-medium text-amber-400">
-            <span className="h-2 w-2 rounded-full bg-amber-400" /> Activating…
+            <span className="h-2 w-2 rounded-full bg-amber-400" /> {t(locale, "Activating…")}
           </p>
         )}
       </div>

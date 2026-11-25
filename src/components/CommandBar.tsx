@@ -31,6 +31,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Command, CornerDownLeft, Loader2, Search, Cpu } from "lucide-react";
 import { NAV } from "@/components/Sidebar";
+import { useLocale } from "@/frontend/locale-context";
+// THE SEARCH INDEX STAYS ENGLISH AND THE LABEL IS TRANSLATED — both, not
+// either. `NAV` is this box's index as well as the sidebar's list, so a French
+// reader must find "Domaines d'envoi" by typing French, and an English operator
+// on the same French laptop must still find it by typing "sending". Replacing
+// the index with French would have quietly deleted the second case.
+import { langFor, t } from "@/shared/i18n";
 import { authedFetch } from "@/frontend/api-client";
 
 type Decision = {
@@ -77,6 +84,7 @@ export default function CommandBar() {
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const destinations = useDestinations();
+  const { locale } = useLocale();
 
   // Cmd/Ctrl-K anywhere, Escape to leave. Bound once on the layout rather than
   // per screen, for the same reason the capability notice is.
@@ -101,9 +109,15 @@ export default function CommandBar() {
     const needle = q.trim().toLowerCase();
     if (!needle) return [];
     return destinations
-      .filter((d) => d.label.toLowerCase().includes(needle) || d.group.toLowerCase().includes(needle))
+      .filter((d) =>
+        // Four haystacks, because a translated platform has two names for every
+        // screen and a search that knows only one of them is half a search.
+        [d.label, d.group, t(locale, d.label), t(locale, d.group)].some((hay) =>
+          hay.toLowerCase().includes(needle)
+        )
+      )
       .slice(0, 6);
-  }, [q, destinations]);
+  }, [q, destinations, locale]);
 
   const ask = useCallback(async () => {
     const prompt = q.trim();
@@ -139,7 +153,7 @@ export default function CommandBar() {
         className="mb-6 flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left text-sm text-slate-500 transition hover:border-emerald-500/40 hover:text-slate-300"
       >
         <Cpu className="h-4 w-4 shrink-0 text-emerald-400/70" />
-        <span className="flex-1 truncate">What do you want MarketWar to do?</span>
+        <span lang={langFor(locale)} className="flex-1 truncate">{t(locale, "What do you want MarketWar to do?")}</span>
         <span className="hidden shrink-0 items-center gap-1 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 sm:flex">
           <Command className="h-3 w-3" />K
         </span>
@@ -157,14 +171,14 @@ export default function CommandBar() {
             value={q}
             onChange={(e) => { setQ(e.target.value); setDecision(null); }}
             onKeyDown={(e) => { if (e.key === "Enter") void ask(); }}
-            placeholder="What do you want MarketWar to do?"
-            aria-label="What do you want MarketWar to do?"
+            placeholder={t(locale, "What do you want MarketWar to do?")}
+            aria-label={t(locale, "What do you want MarketWar to do?")}
             className="flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-slate-600"
           />
           {busy ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : (
             <button type="button" onClick={() => void ask()} disabled={!q.trim()}
               className="flex shrink-0 items-center gap-1 rounded-md border border-white/10 px-2 py-1 text-[10px] font-semibold text-slate-400 disabled:opacity-40">
-              <CornerDownLeft className="h-3 w-3" /> Ask
+              <CornerDownLeft className="h-3 w-3" /> {t(locale, "Ask")}
             </button>
           )}
         </div>
@@ -174,13 +188,13 @@ export default function CommandBar() {
               made to wait for a router. */}
           {matches.length > 0 && (
             <div className="mb-1">
-              <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">Go to</p>
+              <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">{t(locale, "Go to")}</p>
               {matches.map((m) => (
                 <button key={`${m.href}-${m.label}`} type="button" onClick={() => go(m.href)}
                   className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-slate-300 hover:bg-white/[0.05]">
                   <Search className="h-3.5 w-3.5 shrink-0 text-slate-600" />
-                  <span className="flex-1 truncate">{m.label}</span>
-                  <span className="shrink-0 text-[10px] text-slate-600">{m.group}</span>
+                  <span lang={langFor(locale)} className="flex-1 truncate">{t(locale, m.label)}</span>
+                  <span lang={langFor(locale)} className="shrink-0 text-[10px] text-slate-600">{t(locale, m.group)}</span>
                 </button>
               ))}
             </div>
@@ -188,13 +202,19 @@ export default function CommandBar() {
 
           {decision && (
             <div className="border-t border-white/[0.06] p-3 pt-4">
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">The engine that does this</p>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">{t(locale, "The engine that does this")}</p>
               <button type="button" onClick={() => go(decision.best.route)}
                 className="flex w-full items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06] p-3 text-left transition hover:border-emerald-500/60">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-white">{decision.best.label}</p>
+                  <p className="truncate font-semibold text-white">{t(locale, decision.best.label)}</p>
                   <p className="mt-0.5 text-xs text-slate-400">
-                    About {decision.best.acuEstimate} ACU{decision.best.acuEstimate === 1 ? "" : "s"} · {decision.best.confidence}% match on your wording
+                    {t(locale, "About {acu} ACU{s} · {pct}% match on your wording", {
+                      acu: decision.best.acuEstimate,
+                      // English pluralises the unit; French does not, and its
+                      // entry simply has no `{s}` to fill.
+                      s: decision.best.acuEstimate === 1 ? "" : "s",
+                      pct: decision.best.confidence,
+                    })}
                   </p>
                 </div>
                 <ArrowRight className="h-4 w-4 shrink-0 text-emerald-400" />
@@ -202,7 +222,7 @@ export default function CommandBar() {
 
               {decision.best.essentialQuestions.length > 0 && (
                 <>
-                  <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">It will only ask you</p>
+                  <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">{t(locale, "It will only ask you")}</p>
                   <ul className="space-y-0.5">
                     {decision.best.essentialQuestions.map((qq) => (
                       <li key={qq} className="text-xs text-slate-400">· {qq}</li>
@@ -213,12 +233,12 @@ export default function CommandBar() {
 
               {decision.alternatives.length > 0 && (
                 <>
-                  <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">Or</p>
+                  <p className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">{t(locale, "Or")}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {decision.alternatives.map((a) => (
                       <button key={a.id} type="button" onClick={() => go(a.route)}
                         className="rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-300 hover:bg-white/[0.05]">
-                        {a.label}
+                        {t(locale, a.label)}
                       </button>
                     ))}
                   </div>
@@ -231,19 +251,24 @@ export default function CommandBar() {
 
           {!q.trim() && (
             <div className="p-3">
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">Try</p>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-600">{t(locale, "Try")}</p>
               {EXAMPLES.map((e) => (
-                <button key={e} type="button" onClick={() => { setQ(e); setDecision(null); }}
+                // THE EXAMPLE IS TRANSLATED AND THE TRANSLATION IS WHAT GETS
+                // SENT. Clicking one fills the box, and that text goes to the
+                // intent engine as the person's own words — so a French reader
+                // must click French and have French arrive, not see French and
+                // send English.
+                <button key={e} type="button" lang={langFor(locale)} onClick={() => { setQ(t(locale, e)); setDecision(null); }}
                   className="block w-full rounded-lg px-3 py-1.5 text-left text-sm text-slate-400 hover:bg-white/[0.05] hover:text-slate-200">
-                  {e}
+                  {t(locale, e)}
                 </button>
               ))}
             </div>
           )}
 
           {q.trim() && !decision && !busy && matches.length === 0 && (
-            <p className="p-4 text-sm text-slate-500">
-              Press Enter and MarketWar will work out which engine does this.
+            <p lang={langFor(locale)} className="p-4 text-sm text-slate-500">
+              {t(locale, "Press Enter and MarketWar will work out which engine does this.")}
             </p>
           )}
         </div>

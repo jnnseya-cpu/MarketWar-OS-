@@ -41,6 +41,7 @@ const SLOW = {
   "drive:crawl": "~2min+ — boots a production server and crawls every route",
   "drive:brief": "~2min — boots its own dev server and drives the brief surface over HTTP, then in a real browser",
   "drive:provider": "~2min — boots a dev server AND a stand-in provider, to read what the gateway actually sent",
+  "drive:french": "~2min — boots its own dev server and drives the shell in a real FRENCH browser, then an English one",
 };
 
 /** Needs something this container has not got; each one says so itself now. */
