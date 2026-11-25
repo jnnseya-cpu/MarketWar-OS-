@@ -13749,3 +13749,185 @@ the same family as the piped `typecheck` in §184 and the `grep -cv "audit"` in
   any browser.** `ScreenRecorder`, `clip-render` and `ad-export` draw text that
   no translator will ever reach — inherent to the medium, named here rather
   than left to be discovered.
+
+## 59. French, the premier translation (§188, 2026-11-25)
+
+**Owner: "French must be the premier translation."**
+
+### What the word had to be made to mean
+
+"Translation" had been doing two jobs on this platform and only one of them was
+real:
+
+- **Generated content** has been genuinely multilingual since §186. The
+  reader's language reaches every engine, the brand states the language it
+  sells in (`writer-language.ts`), and a francophone merchant in Kinshasa gets
+  a French campaign email written *as* a French email rather than translated
+  out of an English one.
+- **The interface itself had never been translated at all.** The chrome was
+  English with an invitation to the browser to translate it — §187 made that
+  invitation safe by protecting the values a translation must not touch. A
+  machine translation of our own product, improvised per reader, reviewed by
+  nobody.
+
+So *premier* is not a ranking between languages the platform already had. It is
+**the first translation this platform owns**: strings we wrote, that ship in the
+bundle, that a test holds to a standard. French is that one, and for now the
+only one — which is what premier means.
+
+### Three decisions, each inherited by any later locale
+
+1. **The English source text is the key.** There is no `nav.hubs` identifier
+   anywhere. A call site passes the English it would otherwise have rendered
+   and gets French back when French exists. Consequences, which are the whole
+   reason: a missing translation renders *correct English*, never a raw key —
+   the classic `nav.billing.title` on a customer's screen is structurally
+   impossible; the key cannot drift from the string because it **is** the
+   string; and the dictionary reads as a parallel text with no indirection to
+   resolve. The cost is bounded and stated: one English string can have only
+   one French form.
+2. **The data stays English.** `NAV` is untouched. It is the command bar's
+   search index as well as the sidebar's list, so translating it in place
+   would have made a French screen searchable only in French — an
+   English-speaking operator on a French laptop could no longer have found a
+   screen by typing its English name. Translation happens at **render**. A
+   French screen that could not be searched in English would be a regression
+   wearing a feature's clothes.
+3. **`lang` is set from the strings, not from the reader.** §186 removed
+   `<html lang>` because declaring the document French over English text
+   silences the browser's translate offer and makes a screen reader pronounce
+   English with French rules. That reasoning is unchanged — and it is exactly
+   what makes `lang="fr"` *correct* on the one element that is now genuinely
+   French. The attribute goes on the translated nav, per element; the document
+   keeps declaring English for the English page body it still has. §186 named
+   this as the unlock condition; it has been met for the shell and for nothing
+   else, and the markup says so precisely.
+
+### What is French now
+
+`src/shared/i18n.ts` (the mechanism) and `src/shared/i18n-fr.ts` (95 strings):
+every navigation group and label — all 68 screens — the sidebar's live-status
+lines, the command bar's own chrome and its five examples, the mobile drawer
+including its accessibility labels, and the language picker's explanation.
+Rendered through `Sidebar`, `MobileNav`, `CommandBar` and `LanguageSelector`.
+
+**French leads every language list, from one function.** `rankLanguages`
+orders both the reader's picker and the brand's writing language in
+`writer-language.ts`, so the directive cannot be half-applied. Ordering a
+picker is *not* choosing a default: what a reader is served is still decided by
+`effectiveLocale` — their own choice, then their device, then English.
+`localeRank` gives an absent code a rank of its own so the "Not set" placeholder
+keeps the top of the list it heads.
+
+**Regional French is served French.** `fr-FR`, `fr-BE`, `fr-CA`, `fr-CH` and
+`fr-CD` all resolve to the French strings. The platform's francophone market is
+substantially African — Lingala is in the language list for that reason — and a
+dictionary keyed on the exact tag would hand a Congolese reader English because
+their region has no strings of its own.
+
+**A product name is not a word.** OMNIRANK, SHARE2EARN, SiteRaid AI,
+VisualStrike AI, LeadWar Room, Sentinel, MarketWar, WhatsApp and TikTok survive
+verbatim; so do SEO, ROI, ACU and Birmingham. This is §187's judgement about
+DNS records applied to prose: a translation that renames the product has not
+translated the sentence, it has broken the reference. "AI" is deliberately *not*
+on that list — the French for an AI engine is a *moteur IA*, and preserving "AI"
+would be the mistake rather than the rule.
+
+**French typography, not English typography with French words.** A no-break
+space precedes `:`, `%`, `?` and `!`. It appears in the dictionary exactly once,
+as the escape bound to `NB`, and every value interpolates it — so no entry
+carries an invisible character, which would be an unreviewable one. A test holds
+every value to the rule. This is the detail that separates a translation
+somebody wrote from a dictionary somebody ran.
+
+### The defect the French drive found, which was nothing to do with words
+
+The first French browser ever pointed at this platform threw a **React
+hydration failure** on the landing page's chart:
+
+```
++ 7,3    (client)
+- 7.3    (server)
+```
+
+`(7.3).toLocaleString()` with no locale reads whatever locale the *runtime* has
+— `en-US` in Node, French in a French browser — so the two sides of the same
+render disagreed and React **discarded the server's entire tree** and rebuilt it
+on the client. Every chart axis, tooltip and bar label, on every page, for every
+locale whose decimal separator is not a point: French, German, Spanish,
+Portuguese, Italian, Dutch, Arabic. Most of the platform's market. It had been
+invisible because nobody had ever loaded the platform in a French browser.
+
+The same boundary defect as §186 and as every other one in this repository: a
+value that exists on one side of a boundary — the reader's locale — and never
+crosses it, so each side answers the question locally and differently.
+
+**The fix was already in the repository, unadopted.** `src/frontend/locale.ts`
+has held `formatNumber`/`formatMoney` and an SSR-safe resolution note since
+July, with **zero consumers** — it was one of the three files `check:orphans`
+reports. The chart kit now formats through it with an **explicit locale**, taken
+from the same resolved context the interface strings come from. Server and
+client agree *by construction* rather than by suppression: the context answers
+`en` during SSR and on the first client paint, so hydration matches; the
+reader's real locale arrives in an effect and the re-render that follows is an
+ordinary state change. Its own `catch` fallback was `value.toLocaleString()` —
+the ambient locale again — and is now an explicit one, because a fallback that
+reintroduces the defect is not a fallback.
+
+`check:orphans` went from 3 orphans to 2 as a result: the right fix was adopting
+a module that already existed, not writing a second one.
+
+### Verified
+
+- **15 tests, 22 of 22 mutants killed.** The ambient-locale trap is *driven*,
+  not described: a child process with `LC_ALL=fr_FR.UTF-8` where
+  `(7.3).toLocaleString()` really does answer `7,3`, proving both the trap and
+  that an explicit locale is unmoved by it.
+- **`npm run drive:french` — 28 behaviours proven in a real browser**, named in
+  the `verify:drivers` sweep rather than left to be remembered. A French device
+  (`locale: "fr-FR"`, so a real `navigator.languages` and a real
+  `Accept-Language`) gets a French shell with nobody touching a setting; an
+  English device still gets English; a `fr-BE` device gets French; typing
+  **English** on a French screen still finds the screen and the result is
+  labelled in French; choosing English in the picker puts the shell back; the
+  document still does not claim French; and a French browser hydrates the
+  charted landing page without a mismatch. That last assertion was
+  mutation-proven: putting one chart label back on `toLocaleString()` fails it.
+- 12 gates pass, 2,452 tests (2,433 pass, the 12 environmental DNS failures),
+  lint 0 errors, typecheck and build clean.
+
+### Two of my own instruments were wrong again, in the same direction
+
+The control assertion — *not everything is French* — subtracted the nav's text
+from the body's with `replace()`, one of them whitespace-normalised and the
+other not, so nothing was ever removed and the control measured the very thing
+it existed to exclude. And the `[lang="fr"]` assertion on the English screen was
+document-wide, so it failed on the language picker's own options, which carry
+`lang` deliberately (§187) because "Français" is a French word wherever it is
+read. Both now assert what they were written to assert. Third time in three
+sections; the pattern is recorded because it keeps recurring.
+
+`check:orphans` also caught a broken import specifier in the new test that
+worked at runtime — a relative path inside a child-process script string,
+resolved against the child's working directory and unresolvable to anything
+reading the file. Good gate.
+
+### What is NOT French, stated rather than implied
+
+- **The public marketing site.** `marketing.tsx` is a server component, so it
+  cannot read the client locale context, and the public pages are statically
+  prerendered. Doing it properly means **localised routes** (`/fr/...` with
+  `hreflang`), which is real i18n routing and a piece of work in its own right
+  — not a client-side swap that would flash English and tell a search engine
+  the wrong thing.
+- **Page bodies.** Every dashboard screen's own copy is still English and the
+  driver asserts it, because a claim of a French platform would be false. The
+  browser's translate offer covers them, safely, thanks to §187.
+- **Dashboard chart numerals in a browser.** The wiring is correct and the
+  formatter is proven at the function level, but demo-mode dashboard charts
+  render no numeric SVG labels, so "a French reader sees `7,3` on a dashboard
+  chart" is implemented and unit-tested, not browser-verified. Saying so is
+  cheaper than discovering it is false.
+- **Gaps:** the next increment is the marketing site behind `/fr` routes, then
+  page bodies, in that order — the public pages are where machine-translated
+  English costs a sale.

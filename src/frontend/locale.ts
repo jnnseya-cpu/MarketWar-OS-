@@ -48,7 +48,13 @@ export function formatNumber(value: number, opts?: { locale?: string }): string 
   try {
     return new Intl.NumberFormat(locale).format(value);
   } catch {
-    return value.toLocaleString();
+    // NOT `value.toLocaleString()`. The whole point of this function is that
+    // the locale is EXPLICIT: an ambient-locale fallback reintroduces the exact
+    // defect — `7.3` from Node and `7,3` from a French browser, a hydration
+    // mismatch that costs the server's entire tree. A malformed locale tag is
+    // the only way to reach this line, and the honest answer to it is the
+    // platform's own language, chosen by this process and not by the runtime's.
+    return new Intl.NumberFormat("en").format(value);
   }
 }
 

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useLocale } from "@/frontend/locale-context";
+import { formatNumber } from "@/frontend/locale";
 
 // MarketWar OS chart kit — plain SVG, no dependencies.
 // Categorical slots are assigned in FIXED order (CVD-optimised ordering,
@@ -30,6 +32,42 @@ function niceMax(v: number) {
     if (v <= m * mag) return m * mag;
   }
   return 10 * mag;
+}
+
+/**
+ * THE NUMBER FORMATTER EVERY CHART IN THIS KIT SHARES, and why it is not
+ * `toLocaleString()`.
+ *
+ * A VERIFIED DEFECT, found by driving the platform in a French browser for the
+ * first time. `(7.3).toLocaleString()` with no locale reads whatever locale the
+ * RUNTIME happens to have: `7.3` in Node on the server, `7,3` in a French
+ * browser. React compared the two during hydration, found the text different,
+ * and threw away the server's tree to re-render the whole page on the client:
+ *
+ *     + 7,3   (client)
+ *     - 7.3   (server)
+ *
+ * Every chart axis, tooltip and bar label on every page, for every locale whose
+ * decimal separator is not a point — French, German, Spanish, Portuguese,
+ * Italian, Dutch, Arabic. Which is most of the platform's market. It had been
+ * invisible because nobody had ever loaded the platform in a French browser.
+ *
+ * The same boundary defect as §186 and every other one in this repository: a
+ * value that exists on one side of a boundary — the reader's locale — and
+ * never crosses it, so each side answers the question locally and differently.
+ *
+ * THE FIX IS AN EXPLICIT LOCALE, taken from the same resolved context the
+ * interface strings come from, through the formatter `frontend/locale.ts` has
+ * held since July with nothing adopting it. That makes server and client agree
+ * BY CONSTRUCTION rather than by suppression: the context answers "en" during
+ * SSR and on the first client paint, so hydration matches; the reader's real
+ * locale arrives in an effect, and the re-render that follows is an ordinary
+ * state change. A French reader gets `7,3` — correctly, a paint later, instead
+ * of incorrectly and at the cost of the page.
+ */
+function useNumbers() {
+  const { locale } = useLocale();
+  return (n: number) => formatNumber(n, { locale });
 }
 
 function Tooltip({ tip }: { tip: { x: number; y: number; body: ReactNode } | null }) {
@@ -72,6 +110,7 @@ export function AreaChart({
   valuePrefix?: string;
   showLegend?: boolean;
 }) {
+  const num = useNumbers();
   const [tip, setTip] = useState<{ x: number; y: number; body: ReactNode } | null>(null);
   const W = 640;
   const H = height;
@@ -140,7 +179,7 @@ export function AreaChart({
                     {series.map((s, si) => (
                       <p key={s.name} className="flex items-center gap-1.5 text-slate-300">
                         <span className="h-2 w-2 rounded-sm" style={{ background: SERIES[si] }} />
-                        {s.name}: <span className="font-semibold text-white">{valuePrefix}{s.data[i].toLocaleString()}</span>
+                        {s.name}: <span className="font-semibold text-white">{valuePrefix}{num(s.data[i])}</span>
                       </p>
                     ))}
                   </div>
@@ -179,6 +218,7 @@ export function BarChart({
   colors?: readonly string[];
   showValues?: boolean;
 }) {
+  const num = useNumbers();
   const [tip, setTip] = useState<{ x: number; y: number; body: ReactNode } | null>(null);
   const W = 640;
   const H = height;
@@ -221,7 +261,7 @@ export function BarChart({
                     y: (y / H) * rect.height,
                     body: (
                       <p className="text-slate-300">
-                        {d.label}: <span className="font-semibold text-white">{valuePrefix}{d.value.toLocaleString()}</span>
+                        {d.label}: <span className="font-semibold text-white">{valuePrefix}{num(d.value)}</span>
                       </p>
                     ),
                   });
@@ -231,7 +271,7 @@ export function BarChart({
               {showValues && (
                 <text x={x + barW / 2} y={y - 6} textAnchor="middle" fontSize={11} fontWeight={600} fill="#e2e8f0">
                   {valuePrefix}
-                  {d.value.toLocaleString()}
+                  {num(d.value)}
                 </text>
               )}
               <text x={x + barW / 2} y={H - pad.b + 16} textAnchor="middle" fontSize={10.5} fill={INK_MUTED}>
@@ -258,6 +298,7 @@ export function DonutChart({
   centerValue?: string;
   size?: number;
 }) {
+  const num = useNumbers();
   const [tip, setTip] = useState<{ x: number; y: number; body: ReactNode } | null>(null);
   const total = data.reduce((s, d) => s + d.value, 0);
   const R = 84;
@@ -298,7 +339,7 @@ export function DonutChart({
                 y: ((C + (R - 14) * Math.sin(a.mid)) / 200) * rect.height,
                 body: (
                   <p className="text-slate-300">
-                    {a.d.label}: <span className="font-semibold text-white">{a.d.value.toLocaleString()}</span> ({a.pct}%)
+                    {a.d.label}: <span className="font-semibold text-white">{num(a.d.value)}</span> ({a.pct}%)
                   </p>
                 ),
               });
@@ -372,6 +413,7 @@ export function FunnelChart({
   stages: { label: string; value: number }[];
   valuePrefix?: string;
 }) {
+  const num = useNumbers();
   const [tip, setTip] = useState<{ x: number; y: number; body: ReactNode } | null>(null);
   const max = stages[0]?.value || 1;
   return (
@@ -395,7 +437,7 @@ export function FunnelChart({
                     y: rect.top - prect.top,
                     body: (
                       <p className="text-slate-300">
-                        {s.label}: <span className="font-semibold text-white">{valuePrefix}{s.value.toLocaleString()}</span>
+                        {s.label}: <span className="font-semibold text-white">{valuePrefix}{num(s.value)}</span>
                         {conv !== null && <span className="text-slate-400"> · {conv}% from previous</span>}
                       </p>
                     ),
@@ -403,7 +445,7 @@ export function FunnelChart({
                 }}
                 onMouseLeave={() => setTip(null)}
               >
-                <span className="text-xs font-bold text-white drop-shadow">{valuePrefix}{s.value.toLocaleString()}</span>
+                <span className="text-xs font-bold text-white drop-shadow">{valuePrefix}{num(s.value)}</span>
               </div>
               {conv !== null && (
                 <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-500">
@@ -429,6 +471,7 @@ export function HBarList({
   valuePrefix?: string;
   colorByEntity?: boolean;
 }) {
+  const num = useNumbers();
   const max = Math.max(...data.map((d) => d.value)) || 1;
   return (
     <div className="space-y-3">
@@ -438,7 +481,7 @@ export function HBarList({
             <span className="truncate text-slate-300">{d.label}</span>
             <span className="shrink-0 font-display font-bold text-white">
               {valuePrefix}
-              {d.value.toLocaleString()}
+              {num(d.value)}
               {d.note && <span className="ml-1.5 text-xs font-normal text-slate-500">{d.note}</span>}
             </span>
           </div>
