@@ -20,6 +20,7 @@ import { spendVerdict, recordSpend, estimateCost } from "@/backend/ai-spend";
 
 import { guardPrompt, harden, type Untrusted, type Finding } from "@/backend/instruction-firewall";
 import { refuseIfSecret, redactSecrets } from "@/shared/secret-shapes";
+import { fromAcceptLanguage, languageNameOf, normaliseLocale } from "@/shared/locale";
 import { record as recordSecurityEvent } from "@/backend/sentinel";
 
 export type ProviderId = "anthropic" | "openai" | "gemini";
@@ -70,14 +71,23 @@ export interface GatewayRequest {
 // gateway's lang hook, or undefined for English/unknown (a no-op). Every route
 // can pass `lang: gatewayLangFrom(req)` into gatewayComplete to localise output.
 export function gatewayLangFrom(req: { headers: { get(name: string): string | null } }): string | undefined {
-  const code = (req.headers.get("x-mw-lang") || "").trim();
-  if (!code || /^en/i.test(code)) return undefined;
-  try {
-    const name = new Intl.DisplayNames(["en"], { type: "language" }).of(code.split("-")[0]);
-    return name && !/^en/i.test(name) ? name : undefined;
-  } catch {
-    return undefined;
-  }
+  // `x-mw-lang` FIRST, because our own client only sends it when the person has
+  // chosen a language deliberately, and a deliberate choice outranks the device.
+  //
+  // THEN `Accept-Language`, WHICH IS THE FIX. Every browser sends it on every
+  // request, straight from the operating system's language settings, with no
+  // JavaScript, no storage and no cooperation from our client — and this
+  // function ignored it entirely. So a French device that had never touched the
+  // language picker got English from every engine on the platform, while the
+  // request carrying "fr-FR" sat in front of us unread.
+  //
+  // One shared resolver rather than a second copy of the rule here: the client,
+  // the React context and this function now agree by construction.
+  const header = req.headers.get("x-mw-lang");
+  const explicit = normaliseLocale(header);
+  const device = fromAcceptLanguage(req.headers.get("accept-language"));
+  const name = languageNameOf(explicit || device);
+  return name || undefined;
 }
 
 export interface GatewayResponse {

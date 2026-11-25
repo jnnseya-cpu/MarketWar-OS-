@@ -18,6 +18,7 @@
 // pass one. See src/shared/human-retry.ts for the whole account of it.
 
 import { firebaseAuth } from "@/frontend/firebase-client";
+import { effectiveLocale, isDefaultLanguage, LOCALE_KEY } from "@/shared/locale";
 import { runHumanCheck } from "@/frontend/human-check";
 import { fetchWithHumanRetry, replayable, type HumanRetryOutcome } from "@/shared/human-retry";
 import { whoAnswered } from "@/shared/response-origin";
@@ -66,10 +67,25 @@ export async function authedFetch(input: RequestInfo | URL, init: RequestInit = 
       // Token unavailable → proceed unauthenticated (server decides whether to allow).
     }
     // Attach the user's language so AI engines can respond in it (gateway reads it).
+    //
+    // IT USED TO SEND ONLY A STORED OVERRIDE, and nothing writes that key
+    // except the manual selector — so a French device that never found the
+    // picker sent no language at all and got English from every engine, while
+    // `locale-context` sat alongside knowing perfectly well it was French.
+    // The device is now the fallback, which is the whole point: following the
+    // device must require no action from the person.
     try {
-      const loc = typeof localStorage !== "undefined" ? localStorage.getItem("mw.locale.v1") : null;
-      if (loc && !headers.has("x-mw-lang")) headers.set("x-mw-lang", loc);
-    } catch { /* ignore */ }
+      let stored: string | null = null;
+      try { stored = typeof localStorage !== "undefined" ? localStorage.getItem(LOCALE_KEY) : null; }
+      catch { /* private mode, blocked storage — the device still answers */ }
+      const loc = effectiveLocale({
+        override: stored,
+        device: typeof navigator !== "undefined" ? (navigator.languages ?? navigator.language) : null,
+      });
+      // English is the platform's own language and needs no header: sending it
+      // would put a redundant "write in English" instruction on every call.
+      if (loc && !isDefaultLanguage(loc) && !headers.has("x-mw-lang")) headers.set("x-mw-lang", loc);
+    } catch { /* a missing language must never stop a request */ }
     return fetch(input, { ...init, headers });
   };
 

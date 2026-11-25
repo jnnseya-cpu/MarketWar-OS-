@@ -13537,3 +13537,105 @@ known DNS crawler set and none of them mine**, 7 skipping loudly); build clean;
    reads back whether it verified — the one check that settles it end to end.
 4. Deploying this change is worth doing regardless: an unbounded money path is
    a defect whether or not it is today's cause.
+
+---
+
+## 57. The platform follows the device's language (§186, 2026-11-25)
+
+Owner: *"The platform must automatically change language based on user devices
+settings language."*
+
+**All three parts already existed and none of them were joined up.** The
+context detected `navigator.language`. The header `x-mw-lang` could carry it.
+The gateway turned it into AI output in that language. The chain was broken in
+three places at once:
+
+1. **`authedFetch` read a stored OVERRIDE only** — and nothing writes that key
+   except the manual picker. A French device that never found the selector sent
+   **no language at all**, so every engine answered in English while
+   `locale-context` sat alongside knowing perfectly well it was French.
+2. **The gateway ignored `Accept-Language`** — the header every browser sends
+   on every request, straight from the operating system's language settings,
+   needing no JavaScript, no storage and no cooperation from our client. The
+   most reliable device signal there is, unread.
+3. **`LocaleProvider` is mounted in the dashboard layout only**, so the whole
+   marketing site had no detection at all.
+
+The same shape as every other defect in this repository: a value that exists on
+one side of a boundary and never crosses.
+
+### The fix
+
+`src/shared/locale.ts` — one pure resolver the client, the server and the React
+context all ask, instead of three near-copies that disagreed:
+
+- `fromAcceptLanguage` honours **quality values**, because that is what they are
+  for: `en;q=0.5,fr;q=0.9` is somebody who would rather read French, and taking
+  the first entry hands them English. `q=0` means "explicitly not this one".
+- **A deliberate choice always outranks the device.** Somebody who picked
+  English on a French laptop meant it — they may be the English-speaking owner
+  of a French-market business — and a device that quietly overrode that is a
+  setting that will not stay set.
+- **A detected language is never persisted as a choice.** Writing it would
+  freeze today's device setting as though it had been asked for, and the
+  platform would stop following the device from the first load onwards.
+- **An unreadable tag becomes no instruction, never a literal one.** The
+  context's private near-copy returned the raw code when `Intl` knew no name,
+  which turned a junk tag into "write this in zz".
+
+**Measured end to end**, through the real route and gateway over a real socket
+with a stand-in provider: a `fr-FR` browser context causes **"French"** to
+appear in the prompt actually sent, an `es-ES` one **"Spanish"**, and `en-GB`
+sends no language instruction at all — with no storage, no picker and no action
+by the person.
+
+### The part of this that was wrong, and is now a correction
+
+I first made `<html lang>` follow the device, site-wide, via a head script
+matching the existing theme-stamping pattern. Driving it showed the script set
+`fr` at DOMContentLoaded and React hydration reset it to `en`.
+
+**Then the better question: should it have been set at all? No.** `lang`
+declares the language the content **is in**, not the language its reader would
+prefer, and this application's chrome is English. Claiming `lang="fr"` over
+English text does two measurable harms:
+
+- **A screen reader** switches to French pronunciation rules and reads English
+  words with them.
+- **The browser's own translate offer disappears.** Chrome offers to translate
+  when the page's language differs from the reader's; told the page is already
+  French, it stays silent.
+
+So the line whose stated purpose was *"so browser translate works"* was the
+thing preventing it. My head script was reverted, and the **pre-existing**
+`documentElement.lang` assignment in `locale-context.tsx` — which had the same
+defect — was removed with the reasoning written down and a test that fails if
+either comes back. A `fr-FR` browser now correctly sees `lang="en"` on English
+chrome, which is what makes Chrome offer to translate it.
+
+### Verified
+
+7 tests, **11 of 11 mutants killed**. Two survivors were closed by finding the
+input that distinguishes the rule rather than by deleting the test: `q=0` alone
+(which decides nothing in a list where something else wins anyway) and **`eng`**
+— the ISO 639-2 code for English, whose primary subtag is `eng` not `en`, so
+the fast path misses it and only the name check catches it. A third survivor was
+genuinely dead code (`*` is already rejected by the tag pattern) and was deleted
+per §176's rule.
+
+12 gates pass; 2,430 tests (2,411 pass, 12 failing — all the known DNS crawler
+set, none of them mine, 7 skipping loudly); build clean; `verify:drivers` 385
+behaviours, 0 broken.
+
+### Gaps recorded
+
+- **The static UI chrome is still English.** Everything the platform
+  *generates* now follows the device; the fixed strings in the interface do
+  not, and no translation dictionary exists. The honest options are real i18n
+  (a sizeable, separate piece of work across 97 pages) or leaving the browser's
+  own translate offer to do it — which now actually appears, because the page
+  no longer claims to be in a language it is not.
+- **`LocaleProvider` is still dashboard-only.** That no longer costs anything,
+  since the language now travels on `Accept-Language` without it, and the
+  marketing site has no AI generation on it. Mounting it site-wide would only
+  matter for a language picker outside the dashboard.
