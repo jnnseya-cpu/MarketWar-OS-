@@ -13639,3 +13639,113 @@ behaviours, 0 broken.
   since the language now travels on `Accept-Language` without it, and the
   marketing site has no AI generation on it. Mounting it site-wide would only
   matter for a language picker outside the dashboard.
+
+---
+
+## 58. Everything translatable, and the values that must not be (§187, 2026-11-25)
+
+Owner: *"Make sure everything and everywhere can be automatically translated."*
+
+**Those are one requirement, not two.** A page that cannot be translated fails
+the first half. A page whose translation corrupts a DNS record or a key name
+fails the second — and fails it **silently**, because the reader cannot tell
+that what they are looking at is no longer what the machine needs.
+
+### What the audit found
+
+- **Nothing blocked translation anywhere.** No `translate="no"`, no
+  `notranslate` class in the entire codebase. The first half was already true,
+  and §186 had just made the browser's offer actually appear.
+- **Nothing was protected from it either.** Which is the dangerous half.
+- **No right-to-left support at all**, on a platform whose language picker has
+  offered Arabic since it was written.
+
+### The case that made this necessary
+
+The Sending Domains screen prints the records a customer publishes to
+authenticate their mail:
+
+```
+v=spf1 include:_spf.example.com ~all
+v=DMARC1; p=none; rua=mailto:dmarc@example.com
+```
+
+`include`, `all` and `none` are **ordinary English words**. A translated record
+pasted into a DNS panel is an email domain that quietly fails authentication —
+discovered weeks later, as mail landing in spam, by somebody who followed the
+instructions exactly as they were shown.
+
+### The fix
+
+`src/components/Verbatim.tsx` — one marker, three parts, each load-bearing:
+
+- **`translate="no"`**, the HTML standard attribute the browsers honour.
+- **`class="notranslate"`**, Google Translate's own convention, read by the
+  Translate widget and several other tools. Setting one and not the other
+  protects a value from some translators and not others, which is the worst
+  outcome because it *looks* protected.
+- **`dir="ltr"`**, because a DNS record is left-to-right whatever surrounds it.
+  Inside an Arabic paragraph the bidirectional algorithm reorders the
+  punctuation in it, turning a working record into one that still looks
+  plausible and no longer works.
+
+Applied to the values where corruption harms somebody: every DNS field
+(`type`, `host`, `priority`, `value`), environment-variable names and key
+fingerprints. **Not** applied to prose — the status word beside a domain stays
+translatable, and a test fails if it is ever swallowed.
+
+**Right-to-left**, in the one place every agent's output renders
+(`AgentMarkdown`): `dir="auto"`. Not a direction derived from the chosen
+locale, because the two differ — an Arabic-speaking customer may ask for
+English copy for a UK campaign, and that block must stay left-to-right. The
+browser infers it per block from the first strong character of the text itself,
+which is the only signal that is always right and cannot drift from the content.
+
+**The language picker** now renders each name with its own `lang` and marks it
+untranslatable: "Deutsch" rendered into "German" in a German interface is a
+list that has stopped describing itself.
+
+### Verified
+
+7 tests, **11 of 11 mutants killed**, and a real browser confirms the
+attributes survive the production build and reach the DOM — including a
+**control assertion that the page is still overwhelmingly translatable**
+(under 15% of its text is protected), because over-protection would defeat the
+whole request while passing every other check.
+
+12 gates pass; 2,437 tests (2,418 pass, 12 failing — all the known DNS crawler
+set, none of them mine, 7 skipping loudly); build clean; `verify:drivers` 385
+behaviours, 0 broken.
+
+### The instrument was wrong, again, and in the same direction
+
+**Three assertions passed against `translate="no"` and `dir="auto"` sitting in
+the COMMENTS that explain them**, while the attributes themselves had been
+deleted. The mutation sweep caught all three at once — 9 of 12 on the first
+run. They are now rendered through `react-dom/server` and asserted on the HTML
+a browser would actually receive, which is the difference between reading the
+source and testing the behaviour.
+
+Two further assertions of mine were also wrong before the code was: one matched
+`key={e.name}` — an attribute, not a render — and reported a correctly
+protected value as unprotected; another sliced *backwards* to a variable
+declared at the top of the file and asserted against an empty string. Both are
+the same family as the piped `typecheck` in §184 and the `grep -cv "audit"` in
+§185: a convenience in the checking path that fails toward "fine".
+
+### Gaps recorded
+
+- **The static UI chrome is still English**, and is translated by the browser
+  rather than by us. That is now safe and correct — the page declares its
+  language honestly, the machine-readable values are protected, and generated
+  content lays itself out. Real i18n (a string catalogue across 97 pages) would
+  replace the browser's offer with our own translations; it is a separate piece
+  of work and nothing here pretends otherwise.
+- **The marker is applied where corruption is harmful, not everywhere a value
+  appears.** 97 `font-mono` usages exist; the DNS records, key names and
+  fingerprints are marked because those are the ones a person copies into
+  another system. A sweep of the remainder is worth doing and is not done.
+- **Text baked into generated images and `<canvas>` cannot be translated by
+  any browser.** `ScreenRecorder`, `clip-render` and `ad-export` draw text that
+  no translator will ever reach — inherent to the medium, named here rather
+  than left to be discovered.

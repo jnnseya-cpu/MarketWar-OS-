@@ -1,8 +1,14 @@
 "use client";
 
 // Language selector — shows the auto-detected device language and lets the user
-// override it. AI-generated content then comes back in the chosen language; the
-// browser's native translate handles the static chrome (html lang follows this).
+// override it.
+//
+// WHAT IT ACTUALLY CONTROLS, stated accurately: everything the platform
+// GENERATES comes back in the chosen language, because the choice travels on
+// every request as `x-mw-lang`. The static chrome is English and is translated
+// by the browser's own offer, which appears precisely BECAUSE the page honestly
+// declares itself English — the note here used to say "html lang follows this",
+// and that behaviour was the thing suppressing the offer (§186).
 
 import { Globe } from "lucide-react";
 import { LOCALES, useLocale } from "@/frontend/locale-context";
@@ -19,10 +25,15 @@ export default function LanguageSelector() {
         value={known ? short : "en"}
         onChange={(e) => setLocale(e.target.value)}
         className="min-w-0 flex-1 rounded-md border border-ink-700 bg-ink-850 px-2 py-1 text-xs text-slate-200 outline-none focus:border-emerald-500/50"
-        title={`Detected: ${detected}. AI replies + generated content come back in this language now; full interface translation is on the roadmap (use your browser's Translate for the menus meanwhile).`}
+        title={`Detected from this device: ${detected}. Everything the platform writes — agents, campaigns, articles, emails — comes back in this language. The menus and labels are English and your browser will offer to translate them.`}
       >
         {LOCALES.map((l) => (
-          <option key={l.code} value={l.code}>{l.label}</option>
+          // EACH NAME IN ITS OWN LANGUAGE, and never translated: a language's
+          // own name is not a word to render into another one — "Deutsch"
+          // turned into "German" in a German interface is a list that has
+          // stopped describing itself. `lang` also tells a screen reader which
+          // voice to use for each entry.
+          <option key={l.code} value={l.code} lang={l.code} translate="no" className="notranslate">{l.label}</option>
         ))}
       </select>
     </label>

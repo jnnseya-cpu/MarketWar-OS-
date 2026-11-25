@@ -151,7 +151,21 @@ export function Pill({ children, tone = "neutral" }: { children: ReactNode; tone
 export function AgentMarkdown({ text }: { text: string }) {
   const blocks = text.split(/\n{2,}/);
   return (
-    <div className="space-y-4 text-sm leading-relaxed text-slate-300">
+    // `dir="auto"` — EVERY AGENT'S OUTPUT, IN ONE PLACE.
+    //
+    // The platform now generates in the reader's own language (§186), and the
+    // language picker has offered Arabic since it was written. Nothing laid
+    // out right-to-left: Arabic output rendered inside this left-to-right page
+    // came out with its punctuation and numerals in the wrong places — text a
+    // reader can almost follow, which is worse than text they plainly cannot.
+    //
+    // `auto` rather than a direction derived from the chosen locale, because
+    // the two can differ: an Arabic-speaking customer may ask for English copy
+    // for a UK campaign, and the block that arrives in English must stay
+    // left-to-right. The browser infers it per block from the first strong
+    // character of the text ITSELF, which is the only signal that is always
+    // right, needs no configuration, and cannot drift from the content.
+    <div dir="auto" className="space-y-4 text-sm leading-relaxed text-slate-300">
       {blocks.map((block, bi) => {
         const lines = block.split("\n").filter((l) => l.trim().length > 0);
         if (lines.length === 0) return null;

@@ -8,6 +8,7 @@
 // lands in the inbox and replies come back to you. No third-party ESP involved.
 
 import { useCallback, useEffect, useState } from "react";
+import Verbatim from "@/components/Verbatim";
 import { Loader2, AtSign, Plus, ShieldCheck, Copy, Check, RefreshCcw, Trash2, AlertTriangle, CircleDot } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui";
 import { useActiveBrand } from "@/frontend/brand-context";
@@ -163,7 +164,11 @@ export default function SendingDomainsPage() {
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {otherBrandDomains.map((d) => (
                   <span key={d.domain} className="rounded-full border border-amber-500/25 px-2.5 py-1 font-mono text-[11px] text-amber-200/90">
-                    {d.domain}
+                    {/* THE DOMAIN IS VERBATIM; THE STATUS BESIDE IT IS NOT.
+                        "verified" is a word a reader should see in their own
+                        language — marking the whole pill would have protected
+                        the value and silenced the sentence. */}
+                    <Verbatim>{d.domain}</Verbatim>
                     <span className="ml-1.5 text-amber-200/60">{d.status}</span>
                   </span>
                 ))}
@@ -214,7 +219,7 @@ export default function SendingDomainsPage() {
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="font-display text-xs font-bold text-white">{r.purpose}</span>
-                        <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-400">{r.type}</span>
+                        <Verbatim className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-400">{r.type}</Verbatim>
                         {r.required ? <span className="text-[10px] text-slate-500">required</span> : <span className="text-[10px] text-slate-600">optional</span>}
                       </div>
                       {r.verified === true ? <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400"><Check className="h-3 w-3" /> verified</span>
@@ -224,7 +229,7 @@ export default function SendingDomainsPage() {
                     <div className="grid gap-1.5 text-xs">
                       <div className="flex items-center gap-2">
                         <span className="w-12 shrink-0 text-slate-500">Host</span>
-                        <code className="flex-1 truncate rounded bg-ink-900 px-2 py-1 font-mono text-slate-200">{r.host}</code>
+                        <Verbatim as="code" className="flex-1 truncate rounded bg-ink-900 px-2 py-1 font-mono text-slate-200">{r.host}</Verbatim>
                         <CopyBtn text={r.host} />
                       </div>
                       {/* PRIORITY IS ITS OWN FIELD, because it is its own field in
@@ -234,13 +239,13 @@ export default function SendingDomainsPage() {
                       {typeof r.priority === "number" && (
                         <div className="flex items-center gap-2">
                           <span className="w-12 shrink-0 text-slate-500">Priority</span>
-                          <code className="flex-1 truncate rounded bg-ink-900 px-2 py-1 font-mono text-slate-200">{r.priority}</code>
+                          <Verbatim as="code" className="flex-1 truncate rounded bg-ink-900 px-2 py-1 font-mono text-slate-200">{r.priority}</Verbatim>
                           <CopyBtn text={String(r.priority)} />
                         </div>
                       )}
                       <div className="flex items-center gap-2">
                         <span className="w-12 shrink-0 text-slate-500">{r.type === "MX" ? "Points to" : "Value"}</span>
-                        <code className="flex-1 truncate rounded bg-ink-900 px-2 py-1 font-mono text-slate-200">{r.value}</code>
+                        <Verbatim as="code" className="flex-1 truncate rounded bg-ink-900 px-2 py-1 font-mono text-slate-200">{r.value}</Verbatim>
                         <CopyBtn text={r.value} />
                       </div>
                       {r.detail && <p className="pl-14 text-[11px] text-slate-500">{r.detail}</p>}
@@ -258,14 +263,14 @@ export default function SendingDomainsPage() {
                     <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>
                       <span className="font-semibold">Authenticated, but this deployment cannot send yet.</span> Your DNS is
-                      correct and <span className="font-mono">{d.domain}</span> will sign as you the moment a sending server is
+                      correct and <Verbatim className="font-mono">{d.domain}</Verbatim> will sign as you the moment a sending server is
                       configured — that is one platform-wide setting, not something you do per domain. Until then nothing leaves,
                       and every send says so rather than reporting success.
                     </span>
                   </p>
                 ) : (
                   <p className="mt-3 flex items-center gap-1.5 text-xs text-emerald-300">
-                    <ShieldCheck className="h-3.5 w-3.5" /> Live. Set the campaign From to an address on <span className="font-mono">{d.domain}</span> in the Email Center and it sends signed as you.
+                    <ShieldCheck className="h-3.5 w-3.5" /> Live. Set the campaign From to an address on <Verbatim className="font-mono">{d.domain}</Verbatim> in the Email Center and it sends signed as you.
                   </p>
                 )
               )}
